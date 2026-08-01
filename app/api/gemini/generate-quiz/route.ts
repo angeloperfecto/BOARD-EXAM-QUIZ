@@ -42,9 +42,13 @@ CRITICAL INSTRUCTIONS:
    - FILL_IN_BLANK: Text with blank spaces (e.g. "_____").
    - MATCHING: Matching left items to right items. Pass pairs in the 'matchingPairs' field.
    - SITUATIONAL / COMPUTATIONAL / ESSAY: Scenario-based or numerical calculation questions.
-5. FORMATTING & MATHEMATICAL EXPRESSIONS:
-   - Retain all original math equations, formulas, and structural layouts. Use clear text representations.
-   - IMPORTANT JSON COMPLIANCE: If you output backslashes (e.g., in LaTeX commands like \\underline, \\frac, \\times, etc.), you MUST double-escape them in the JSON string values (i.e. write '\\\\underline' or '\\\\frac'). Never write a raw single backslash followed by characters like 'u' (e.g., '\\u', '\\underline', '\\union') as that causes JSON syntax errors.
+5. FORMATTING & MATHEMATICAL EXPRESSIONS (STRICT LATEX):
+   - You MUST extract 100% of all mathematical questions containing formulas, symbols, fractions, exponents, subscripts, superscripts, matrices, integrals, summations, Greek letters, square roots, vectors, and other notation WITHOUT any loss of formatting or detail.
+   - Represent EVERY mathematical expression, formula, symbol, equation, and notation strictly using standard LaTeX formatting.
+   - Use standard inline LaTeX wrapped in single dollar signs like '$...$' for inline notation, variables, and small expressions (e.g., '$E = mc^2$', '$\\frac{a}{b}$', '$\\alpha$', '$\\sqrt{x^2+y^2}$', '$x_i$', or '$y^2$').
+   - Use block/standalone LaTeX wrapped in double dollar signs like '$$...$$' for larger equations, standalone expressions, matrices, integrals, or complex summations (e.g., '$$\\int_a^b f(x)\\,dx$$', or '$$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$$').
+   - Double-escape all backslashes in JSON (e.g., write '\\\\frac{a}{b}' or '\\\\alpha') to ensure it is valid JSON. NEVER output a raw unescaped backslash like '\\frac'.
+   - Ensure absolutely no mathematical symbols are converted into plain text, omitted, corrupted, or reformatted incorrectly during extraction. The rendered output must be visually and structurally identical to the source document.
 6. MULTILINGUAL SUPPORT:
    - Fully support English, Filipino, and Taglish/mixed-language documents with perfect OCR and translation fidelity.`;
 

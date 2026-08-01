@@ -1,5 +1,6 @@
 import type {Metadata} from 'next';
 import './globals.css'; // Global styles
+import 'katex/dist/katex.min.css'; // Mathematical rendering styles
 
 export const metadata: Metadata = {
   title: 'My Google AI Studio App',

@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuestionType, Question, Quiz, QuizAttempt, ExtractionLog } from '@/lib/types';
+import { MathRenderer } from '@/components/MathRenderer';
 
 // Dynamic script loader for PDF.js CDN
 const loadPDFJS = async (): Promise<any> => {
@@ -1425,21 +1426,23 @@ export default function AIQuizGenerator() {
                                 </span>
                               </div>
 
-                              <p className="text-sm text-slate-200 font-semibold">{q.text}</p>
+                              <div className="text-sm text-slate-200 font-semibold leading-relaxed">
+                                <MathRenderer text={q.text} />
+                              </div>
 
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs border-t border-white/5 pt-2.5 mt-1.5">
-                                <p className="text-slate-500">
-                                  Your answer: <strong className={isCorrect ? "text-emerald-400" : "text-red-400"}>{String(userAns || 'Not Answered')}</strong>
-                                </p>
-                                <p className="text-slate-500 md:text-right">
-                                  Correct answer: <strong className="text-emerald-400">{String(q.correctAnswer || 'N/A')}</strong>
-                                </p>
+                                <div className="text-slate-500">
+                                  Your answer: <span className={cn("font-bold", isCorrect ? "text-emerald-400" : "text-red-400")}><MathRenderer text={String(userAns || 'Not Answered')} /></span>
+                                </div>
+                                <div className="text-slate-500 md:text-right">
+                                  Correct answer: <span className="text-emerald-400 font-bold"><MathRenderer text={String(q.correctAnswer || 'N/A')} /></span>
+                                </div>
                               </div>
 
                               {q.explanation && (
-                                <p className="text-xs text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 p-2.5 rounded-xl font-medium">
-                                  <strong>Explanation:</strong> {q.explanation}
-                                </p>
+                                <div className="text-xs text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 p-2.5 rounded-xl font-medium leading-relaxed">
+                                  <strong className="text-indigo-200">Explanation:</strong> <MathRenderer text={q.explanation} />
+                                </div>
                               )}
                             </div>
                           );
@@ -1533,7 +1536,9 @@ export default function AIQuizGenerator() {
 
                             {/* Text and image */}
                             <div className="flex flex-col gap-4">
-                              <p className="text-base font-bold text-white leading-relaxed">{q.text}</p>
+                              <div className="text-base font-bold text-white leading-relaxed">
+                                <MathRenderer text={q.text} />
+                              </div>
                               
                               {/* Inline base64 image representation if associated */}
                               {q.image && (
@@ -1599,7 +1604,7 @@ export default function AIQuizGenerator() {
                                              String.fromCharCode(65 + cidx)
                                            )}
                                          </div>
-                                         <span>{choice}</span>
+                                         <span><MathRenderer text={choice} /></span>
                                        </button>
                                      );
                                    })}
@@ -1685,7 +1690,7 @@ export default function AIQuizGenerator() {
                                              <div>
                                                <p className="font-bold text-red-300 text-sm">Incorrect</p>
                                                <p className="text-[11px] text-slate-400 mt-1">
-                                                 Correct answer: <strong className="text-emerald-400 font-bold bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded">{String(q.correctAnswer)}</strong>
+                                                 Correct answer: <span className="text-emerald-400 font-bold bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded inline-block align-middle"><MathRenderer text={String(q.correctAnswer)} /></span>
                                                </p>
                                              </div>
                                            </>
@@ -1723,7 +1728,7 @@ export default function AIQuizGenerator() {
                                                <X className="w-4 h-4 text-red-400" />
                                              )
                                            )}
-                                           <span className="font-semibold text-slate-200">{pair.left}</span>
+                                           <span className="font-semibold text-slate-200"><MathRenderer text={pair.left} /></span>
                                          </div>
  
                                          <div className="flex items-center gap-2">
@@ -1747,7 +1752,7 @@ export default function AIQuizGenerator() {
  
                                            {isRowChecked && !isRowCorrect && (
                                              <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10">
-                                               Correct: {pair.right}
+                                               Correct: <MathRenderer text={pair.right} />
                                              </span>
                                            )}
                                          </div>
@@ -1804,7 +1809,7 @@ export default function AIQuizGenerator() {
                                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
                                          <span>Explanation & Context</span>
                                        </div>
-                                       <p className="mt-1 text-[11px] leading-relaxed text-slate-300">{q.explanation}</p>
+                                       <div className="mt-1 text-[11px] leading-relaxed text-slate-300"><MathRenderer text={q.explanation} /></div>
                                      </motion.div>
                                    );
                                  }
@@ -1958,7 +1963,9 @@ export default function AIQuizGenerator() {
 
                         {/* Text and Image Display */}
                         <div className="flex flex-col gap-3">
-                          <p className="text-sm text-slate-200 font-bold leading-relaxed">{q.text}</p>
+                          <div className="text-sm text-slate-200 font-bold leading-relaxed">
+                            <MathRenderer text={q.text} />
+                          </div>
                           
                           {q.image && (
                             <div className="p-1.5 border border-white/10 rounded-xl max-w-xs bg-white/5 flex items-center justify-center">
