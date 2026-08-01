@@ -192,12 +192,49 @@ export default function AIQuizGenerator() {
     return false;
   };
 
+  const getChoiceLetter = (str: string): string | null => {
+    const clean = str.trim().toUpperCase();
+    const match = clean.match(/^\[?\(?([A-Z])[\).\]\s]/) || clean.match(/^([A-Z])$/);
+    return match ? match[1] : null;
+  };
+
+  const stripChoicePrefix = (str: string): string => {
+    return str.replace(/^\[?\(?[A-Z][\).\]\s]\s*/i, '').trim();
+  };
+
   const isChoiceCorrect = (q: Question, choice: string): boolean => {
     const correctAns = q.correctAnswer;
     if (!correctAns) return false;
-    const optionChar = choice.trim().charAt(0).toUpperCase();
-    const cleanCorrect = String(correctAns).trim().toUpperCase();
-    return optionChar === cleanCorrect || choice === correctAns || cleanCorrect.startsWith(optionChar);
+
+    const cleanChoice = choice.trim().toLowerCase();
+    const cleanCorrect = String(correctAns).trim().toLowerCase();
+
+    // 1. Direct match
+    if (cleanChoice === cleanCorrect) {
+      return true;
+    }
+
+    // 2. Extract choice letter and correct answer letter and compare
+    const choiceLetter = getChoiceLetter(choice);
+    const correctLetter = getChoiceLetter(String(correctAns));
+
+    if (choiceLetter && correctLetter && choiceLetter === correctLetter) {
+      return true;
+    }
+
+    // 3. Compare stripped versions (without option letter prefixes)
+    const strippedChoice = stripChoicePrefix(choice).toLowerCase();
+    const strippedCorrect = stripChoicePrefix(String(correctAns)).toLowerCase();
+    if (strippedChoice && strippedCorrect && strippedChoice === strippedCorrect) {
+      return true;
+    }
+
+    // 4. Fallback for single letter correct answers matching choice letter
+    if (choiceLetter && cleanCorrect === choiceLetter.toLowerCase()) {
+      return true;
+    }
+
+    return false;
   };
 
   // Upload and parsing states
@@ -673,12 +710,7 @@ export default function AIQuizGenerator() {
       if (!correctAns) return;
 
       if (q.type === QuestionType.MCQ) {
-        // Strip out 'A. ', 'B. ' letters if correct answer is a single character
-        const cleanUser = String(userAns || '').trim().toUpperCase();
-        const cleanCorrect = String(correctAns).trim().toUpperCase();
-        
-        // Exact match or option letter matching (e.g. User selected "A. Option" and Correct answer is "A")
-        if (cleanUser === cleanCorrect || cleanUser.startsWith(cleanCorrect) || cleanCorrect.startsWith(cleanUser)) {
+        if (isChoiceCorrect(q, String(userAns || ''))) {
           score++;
         }
       } else if (q.type === QuestionType.TRUE_FALSE) {
