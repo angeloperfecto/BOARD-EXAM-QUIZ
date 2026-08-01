@@ -811,14 +811,28 @@ export default function AIQuizGenerator() {
     const quiz = quizzes.find(q => q.id === quizId);
     if (!quiz) return;
 
+    if (quiz.isPublished) {
+      const updatedQuizzes = quizzes.map(q => q.id === quizId ? { ...q, isPublished: false } : q);
+      saveQuizzesToStorage(updatedQuizzes);
+      setSelectedQuiz(prev => prev && prev.id === quizId ? { ...prev, isPublished: false } : prev);
+      alert('Quiz unpublished successfully! It is now a draft review.');
+      return;
+    }
+
     const errors: string[] = [];
     quiz.questions.forEach((q, idx) => {
-      if (!q.text.trim()) errors.push(`Q${idx + 1} is empty`);
+      if (!q.text || !q.text.trim()) errors.push(`Q${idx + 1} is empty`);
       if (q.type === QuestionType.MCQ && (!q.choices || q.choices.length < 2)) {
         errors.push(`Q${idx + 1} has insufficient answer options`);
       }
-      if (!q.correctAnswer && q.type !== QuestionType.ESSAY) {
-        errors.push(`Q${idx + 1} has no correct answer configured`);
+      if (q.type === QuestionType.MATCHING) {
+        if (!q.matchingPairs || q.matchingPairs.length === 0) {
+          errors.push(`Q${idx + 1} is a matching type question but has no matching pairs configured`);
+        }
+      } else if (q.type !== QuestionType.ESSAY) {
+        if (!q.correctAnswer || (typeof q.correctAnswer === 'string' && !q.correctAnswer.trim())) {
+          errors.push(`Q${idx + 1} has no correct answer configured`);
+        }
       }
     });
 
@@ -1890,10 +1904,15 @@ export default function AIQuizGenerator() {
                     </button>
                     <button
                       onClick={() => handlePublishQuiz(selectedQuiz.id)}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-505 text-white font-bold text-xs rounded-lg transition-all shadow-md cursor-pointer"
+                      className={cn(
+                        "flex items-center gap-1.5 px-4 py-2 text-white font-bold text-xs rounded-lg transition-all shadow-md cursor-pointer",
+                        selectedQuiz.isPublished 
+                          ? "bg-amber-600 hover:bg-amber-500" 
+                          : "bg-indigo-600 hover:bg-indigo-500"
+                      )}
                     >
                       <ShieldCheck className="w-3.5 h-3.5" />
-                      <span>Publish Quiz</span>
+                      <span>{selectedQuiz.isPublished ? 'Unpublish Quiz' : 'Publish Quiz'}</span>
                     </button>
                   </div>
                 </div>
