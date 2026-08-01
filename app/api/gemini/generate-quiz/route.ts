@@ -11,6 +11,51 @@ const ai = new GoogleGenAI({
   },
 });
 
+// Helper function to call generateContent with retry and model fallback logic to handle high demand / transient 503/429 errors
+async function generateContentWithRetryAndFallback(params: {
+  contents: any;
+  config: any;
+}) {
+  const models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  const maxRetries = 2;
+  let lastError: any = null;
+
+  for (const model of models) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Attempting quiz generation with model ${model} (attempt ${attempt + 1}/${maxRetries + 1})...`);
+        const response = await ai.models.generateContent({
+          model: model,
+          contents: params.contents,
+          config: params.config,
+        });
+
+        if (response && response.text) {
+          console.log(`Successfully generated quiz using model ${model}`);
+          return response;
+        }
+        throw new Error('Gemini returned an empty response.');
+      } catch (err: any) {
+        lastError = err;
+        console.error(`Error with model ${model} on attempt ${attempt + 1}:`, err);
+
+        if (attempt === maxRetries) {
+          console.warn(`Model ${model} failed after ${maxRetries + 1} attempts. Falling back to next model if available...`);
+          break;
+        }
+
+        // Exponential backoff
+        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+        console.log(`Waiting ${Math.round(delay)}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  const errorMessage = lastError?.message || JSON.stringify(lastError) || 'Unknown error';
+  throw new Error(`All models and retries failed due to API errors / high demand. Last error: ${errorMessage}`);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { text, images, fileName, subject, difficulty, customInstructions } = await req.json();
@@ -204,8 +249,7 @@ Document Content:
       required: ['quizTitle', 'questions'],
     };
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+    const response = await generateContentWithRetryAndFallback({
       contents: { parts: finalContents },
       config: {
         systemInstruction,
