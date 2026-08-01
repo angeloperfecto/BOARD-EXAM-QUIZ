@@ -1,0 +1,68 @@
+export enum QuestionType {
+  MCQ = 'MCQ',
+  TRUE_FALSE = 'TRUE_FALSE',
+  IDENTIFICATION = 'IDENTIFICATION',
+  ENUMERATION = 'ENUMERATION',
+  FILL_IN_BLANK = 'FILL_IN_BLANK',
+  MATCHING = 'MATCHING',
+  SITUATIONAL = 'SITUATIONAL',
+  COMPUTATIONAL = 'COMPUTATIONAL',
+  ESSAY = 'ESSAY',
+  OTHERS = 'OTHERS',
+}
+
+export interface MatchingPair {
+  left: string;
+  right: string;
+}
+
+export interface Question {
+  id: string;
+  type: QuestionType;
+  number: string; // Keep as string to preserve original numbering like "1.", "1.1", "Q1"
+  text: string;
+  image?: string | null; // Base64 or ObjectURL
+  choices?: string[] | null; // For MCQ
+  correctAnswer?: string | string[] | null; // Single answer for MCQ/Identification, multiple for Enumeration
+  matchingPairs?: MatchingPair[] | null; // For MATCHING type
+  tableData?: string[][] | null; // For table-based questions
+  explanation?: string | null;
+  category?: string | null;
+  subject?: string | null;
+  difficulty?: 'easy' | 'medium' | 'hard' | null;
+  pageNumber?: number | null;
+  sourceFile?: string | null;
+}
+
+export interface Quiz {
+  id: string;
+  title: string;
+  description: string | null;
+  questions: Question[];
+  createdAt: string;
+  sourceFiles: string[];
+  subject: string | null;
+  category: string | null;
+  isPublished: boolean;
+}
+
+export interface QuizAttempt {
+  id: string;
+  quizId: string;
+  answers: Record<string, any>; // questionId -> answer structure
+  score: number;
+  totalQuestions: number;
+  completedAt?: string | null;
+  status: 'in_progress' | 'completed';
+  startedAt: string;
+}
+
+export interface ExtractionLog {
+  id: string;
+  fileName: string;
+  status: 'pending' | 'processing' | 'success' | 'failed';
+  totalPages?: number;
+  processedPages?: number;
+  questionsFound: number;
+  error?: string | null;
+}
