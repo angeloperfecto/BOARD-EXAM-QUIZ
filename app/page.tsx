@@ -48,7 +48,8 @@ import {
   XCircle,
   Zap,
   Star,
-  Info
+  Info,
+  ChevronDown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuestionType, Question, Quiz, QuizAttempt, ExtractionLog } from '@/lib/types';
@@ -172,13 +173,14 @@ const SAMPLE_QUIZ: Quiz = {
   ]
 };
 
-export default function AIQuizGenerator() {
+export default function ElectricalReviewPro() {
   // Application states
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [activeMode, setActiveMode] = useState<'list' | 'take' | 'edit' | 'extract' | 'history'>('list');
   const [logsExpanded, setLogsExpanded] = useState<boolean>(false);
   const [docsExpanded, setDocsExpanded] = useState<boolean>(false);
+  const [opsCenterExpanded, setOpsCenterExpanded] = useState<boolean>(true);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>({});
   const [quizAttempt, setQuizAttempt] = useState<QuizAttempt | null>(null);
@@ -344,7 +346,12 @@ export default function AIQuizGenerator() {
   // Initialize and load quizzes from local storage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('ai_quiz_generator_quizzes');
+      let stored = localStorage.getItem('electrical_review_pro_quizzes');
+      if (!stored) {
+        stored = localStorage.getItem('ai_quiz_generator_quizzes'); // migration
+        if (stored) localStorage.setItem('electrical_review_pro_quizzes', stored);
+      }
+      
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
@@ -361,7 +368,7 @@ export default function AIQuizGenerator() {
         // Seed with sample quiz
         setQuizzes([SAMPLE_QUIZ]);
         setSelectedQuiz(SAMPLE_QUIZ);
-        localStorage.setItem('ai_quiz_generator_quizzes', JSON.stringify([SAMPLE_QUIZ]));
+        localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify([SAMPLE_QUIZ]));
       }
     }
   }, []);
@@ -369,13 +376,18 @@ export default function AIQuizGenerator() {
   // Save quizzes to local storage helper
   const saveQuizzesToStorage = (updatedQuizzes: Quiz[]) => {
     setQuizzes(updatedQuizzes);
-    localStorage.setItem('ai_quiz_generator_quizzes', JSON.stringify(updatedQuizzes));
+    localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify(updatedQuizzes));
   };
 
   // Load score history attempts from local storage on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('ai_quiz_generator_attempts');
+      let stored = localStorage.getItem('electrical_review_pro_attempts');
+      if (!stored) {
+        stored = localStorage.getItem('ai_quiz_generator_attempts'); // migration
+        if (stored) localStorage.setItem('electrical_review_pro_attempts', stored);
+      }
+      
       if (stored) {
         try {
           setAttempts(JSON.parse(stored));
@@ -389,7 +401,7 @@ export default function AIQuizGenerator() {
   // Save attempts helper
   const saveAttemptsToStorage = (updatedAttempts: QuizAttempt[]) => {
     setAttempts(updatedAttempts);
-    localStorage.setItem('ai_quiz_generator_attempts', JSON.stringify(updatedAttempts));
+    localStorage.setItem('electrical_review_pro_attempts', JSON.stringify(updatedAttempts));
   };
 
   // Get details for any attempt
@@ -892,7 +904,7 @@ export default function AIQuizGenerator() {
     setExtractionLogs(prev => prev.map(l => l.id === logId ? { ...l, status: 'success' } : l));
   };
 
-  // AI Quiz Generator Caller
+  // Electrical Review Pro Caller
   const generateQuizFromFiles = async () => {
     if (uploadedFiles.length === 0) {
       alert('Please upload at least one PDF or Word document first.');
@@ -1394,8 +1406,7 @@ export default function AIQuizGenerator() {
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                <span>AI Quiz Generator</span>
-                <span className="px-1.5 py-0.5 bg-indigo-500/15 text-indigo-400 text-[10px] font-black tracking-widest uppercase rounded border border-indigo-500/20">PRO</span>
+                <span>Electrical Review Pro</span>
               </h1>
               <p className="text-xs text-slate-400">Document Scan & Interactive Review Platform</p>
             </div>
@@ -1583,58 +1594,70 @@ export default function AIQuizGenerator() {
           <div className="lg:col-span-4 flex flex-col gap-6 order-last lg:order-first">
             
             {/* Quick Stats Panel / Action Cards (Visible only on desktop as mobile has top tabs) */}
-            <div className="hidden lg:block bg-[#111115] border border-white/[0.06] rounded-2xl p-5 shadow-xl">
-              <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-extrabold mb-4">Operations Center</h3>
+            <div className="hidden lg:block bg-[#111115] border border-white/[0.06] rounded-2xl p-5 shadow-xl transition-all">
+              <button
+                onClick={() => setOpsCenterExpanded(!opsCenterExpanded)}
+                className="w-full flex items-center justify-between text-left cursor-pointer hover:opacity-80 transition-opacity"
+              >
+                <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-extrabold mb-0">Operations Center</h3>
+                <div className="text-slate-500 bg-white/5 p-1 rounded-md">
+                  <motion.div animate={{ rotate: opsCenterExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </motion.div>
+                </div>
+              </button>
               
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => {
-                    setActiveMode('list');
-                    setSelectedQuiz(null);
-                    setSelectedAttemptId(null);
-                  }}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border",
-                    activeMode === 'list' && !selectedQuiz
-                      ? "bg-indigo-600/10 text-white border-indigo-500/30 shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
-                      : "text-slate-400 border-transparent hover:bg-white/[0.03] hover:text-slate-200"
-                  )}
-                >
-                  <FolderOpen className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                  <span className="flex-grow">Quiz Library</span>
-                  <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-extrabold rounded-full border border-indigo-500/20">{quizzes.length}</span>
-                </button>
+              {opsCenterExpanded && (
+                <div className="flex flex-col gap-2 mt-4">
+                  <button
+                    onClick={() => {
+                      setActiveMode('list');
+                      setSelectedQuiz(null);
+                      setSelectedAttemptId(null);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border",
+                      activeMode === 'list' && !selectedQuiz
+                        ? "bg-indigo-600/10 text-white border-indigo-500/30 shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
+                        : "text-slate-400 border-transparent hover:bg-white/[0.03] hover:text-slate-200"
+                    )}
+                  >
+                    <FolderOpen className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span className="flex-grow">Quiz Library</span>
+                    <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-extrabold rounded-full border border-indigo-500/20">{quizzes.length}</span>
+                  </button>
 
-                <button
-                  onClick={() => {
-                    setActiveMode('history');
-                    setSelectedQuiz(null);
-                    setSelectedAttemptId(null);
-                  }}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border",
-                    activeMode === 'history'
-                      ? "bg-indigo-600/10 text-white border-indigo-500/30 shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
-                      : "text-slate-400 border-transparent hover:bg-white/[0.03] hover:text-slate-200"
-                  )}
-                >
-                  <History className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                  <span className="flex-grow">Score History & Analytics</span>
-                  {attempts.length > 0 && (
-                    <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-extrabold rounded-full border border-indigo-500/20">
-                      {attempts.length}
-                    </span>
-                  )}
-                </button>
+                  <button
+                    onClick={() => {
+                      setActiveMode('history');
+                      setSelectedQuiz(null);
+                      setSelectedAttemptId(null);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border",
+                      activeMode === 'history'
+                        ? "bg-indigo-600/10 text-white border-indigo-500/30 shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
+                        : "text-slate-400 border-transparent hover:bg-white/[0.03] hover:text-slate-200"
+                    )}
+                  >
+                    <History className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span className="flex-grow">Score History & Analytics</span>
+                    {attempts.length > 0 && (
+                      <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-extrabold rounded-full border border-indigo-500/20">
+                        {attempts.length}
+                      </span>
+                    )}
+                  </button>
 
-                <button
-                  onClick={mergeQuizzes}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-indigo-400 hover:bg-indigo-500/10 hover:text-white transition-all text-left cursor-pointer border border-transparent hover:border-indigo-500/20"
-                >
-                  <Layers className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                  <span>Merge All Quizzes</span>
-                </button>
-              </div>
+                  <button
+                    onClick={mergeQuizzes}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-indigo-400 hover:bg-indigo-500/10 hover:text-white transition-all text-left cursor-pointer border border-transparent hover:border-indigo-500/20"
+                  >
+                    <Layers className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span>Merge All Quizzes</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Document Library - Collapsible with beautiful header trigger */}
@@ -3890,7 +3913,7 @@ export default function AIQuizGenerator() {
       {/* Footer */}
       <footer className="bg-[#0B0B0C] border-t border-white/10 mt-12 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© 2026 AI Quiz Generator • Real-Time Client Parsing & Verification Stack</p>
+          <p>© 2026 Electrical Review Pro • Real-Time Client Parsing & Verification Stack</p>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />

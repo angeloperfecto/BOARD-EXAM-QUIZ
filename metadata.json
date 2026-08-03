@@ -1,6 +1,6 @@
 {
-  "name": "AI Quiz Generator",
-  "description": "An intelligent quiz generator that automatically extracts questions, tables, and images from PDF and Word documents to create interactive quizzes.",
+  "name": "Electrical Review Pro",
+  "description": "An intelligent review generator that automatically extracts questions, tables, and images from PDF and Word documents to create interactive quizzes.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
