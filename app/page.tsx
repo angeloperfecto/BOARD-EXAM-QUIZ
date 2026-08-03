@@ -208,6 +208,14 @@ export default function AIQuizGenerator() {
     }
     return false;
   });
+  
+  // Randomization Settings
+  const [quizConfig, setQuizConfig] = useState({
+    randomizeQuestions: false,
+    randomizeChoices: false,
+  });
+  const [activeQuestions, setActiveQuestions] = useState<Question[]>([]);
+  const [showQuizSetupModal, setShowQuizSetupModal] = useState<Quiz | null>(null);
   const [checkedQuestions, setCheckedQuestions] = useState<Record<string, boolean>>({});
 
   // Save option to localStorage
@@ -285,6 +293,26 @@ export default function AIQuizGenerator() {
     // 4. Fallback for single letter correct answers matching choice letter
     if (choiceLetter && cleanCorrect === choiceLetter.toLowerCase()) {
       return true;
+    }
+
+    // 5. Match by content against original choices (for randomized choices)
+    if (q.choices && q.choices.length > 0) {
+      const originalCorrectChoice = q.choices.find(c => {
+        const cClean = c.trim().toLowerCase();
+        if (cClean === cleanCorrect) return true;
+        const cLetter = getChoiceLetter(c);
+        if (cLetter && correctLetter && cLetter === correctLetter) return true;
+        if (cLetter && cleanCorrect === cLetter.toLowerCase()) return true;
+        const cStripped = stripChoicePrefix(c).toLowerCase();
+        if (cStripped && strippedCorrect && cStripped === strippedCorrect) return true;
+        return false;
+      });
+
+      if (originalCorrectChoice) {
+        if (strippedChoice === stripChoicePrefix(originalCorrectChoice).toLowerCase()) {
+          return true;
+        }
+      }
     }
 
     return false;
@@ -1000,20 +1028,62 @@ export default function AIQuizGenerator() {
     }
   };
 
+  const shuffleArray = <T,>(array: T[]): T[] => {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
   // Start Quiz runner
-  const startQuiz = (quiz: Quiz) => {
+  const startQuiz = (quiz: Quiz, configOverride?: typeof quizConfig) => {
+    const config = configOverride || quizConfig;
     setSelectedQuiz(quiz);
     setUserAnswers({});
     setCheckedQuestions({});
     setActiveQuestionIndex(0);
+
+    let currentQuestions = [...quiz.questions];
+    
+    if (config.randomizeQuestions) {
+      currentQuestions = shuffleArray(currentQuestions);
+    }
+    
+    if (config.randomizeChoices) {
+      currentQuestions = currentQuestions.map(q => {
+        if (q.type === QuestionType.MCQ && q.choices) {
+          // Shuffle options, keeping content
+          let shuffledChoices = shuffleArray([...q.choices]);
+          
+          // Generate new letter prefixes for display logic stability
+          shuffledChoices = shuffledChoices.map((choice, i) => {
+            const letter = String.fromCharCode(65 + i);
+            const stripped = stripChoicePrefix(choice);
+            return `${letter}. ${stripped}`;
+          });
+
+          return {
+            ...q,
+            choices: shuffledChoices
+          };
+        }
+        return q;
+      });
+    }
+
+    setActiveQuestions(currentQuestions);
+
     setQuizAttempt({
       id: `attempt-${Date.now()}`,
       quizId: quiz.id,
       answers: {},
       score: 0,
-      totalQuestions: quiz.questions.length,
+      totalQuestions: currentQuestions.length,
       status: 'in_progress',
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      activeQuestions: currentQuestions
     });
     setShowResults(false);
     setActiveMode('take');
@@ -1061,7 +1131,7 @@ export default function AIQuizGenerator() {
     if (!selectedQuiz || !quizAttempt) return;
 
     let score = 0;
-    selectedQuiz.questions.forEach(q => {
+    activeQuestions.forEach(q => {
       const userAns = userAnswers[q.id];
       const correctAns = q.correctAnswer;
 
@@ -1118,7 +1188,7 @@ export default function AIQuizGenerator() {
     saveAttemptsToStorage(updatedAttempts);
 
     // 3. Motivational triggers based on performance
-    const totalQs = selectedQuiz.questions.length;
+    const totalQs = activeQuestions.length;
     const percentage = totalQs > 0 ? Math.round((score / totalQs) * 100) : 0;
     const durationMs = new Date(nowStr).getTime() - new Date(quizAttempt.startedAt).getTime();
     const durationSeconds = Math.round(durationMs / 1000);
@@ -1185,6 +1255,12 @@ export default function AIQuizGenerator() {
             }
             setCheckedQuestions(initialChecked);
 
+            if (parsed.activeQuestions && parsed.activeQuestions.length > 0) {
+              setActiveQuestions(parsed.activeQuestions);
+            } else {
+              setActiveQuestions(quiz.questions);
+            }
+
             setQuizAttempt(parsed);
             setShowResults(false);
             setActiveMode('take');
@@ -1195,7 +1271,7 @@ export default function AIQuizGenerator() {
         console.error(e);
       }
     }
-    startQuiz(quiz);
+    setShowQuizSetupModal(quiz);
   };
 
   // Question Editor updates
@@ -2162,7 +2238,7 @@ export default function AIQuizGenerator() {
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span className="text-xs text-slate-400">Progress:</span>
                     <span className="text-sm font-extrabold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
-                      {Object.keys(userAnswers).length} / {selectedQuiz.questions.length} answered
+                      {Object.keys(userAnswers).length} / {activeQuestions.length} answered
                     </span>
                   </div>
                 </div>
@@ -2213,7 +2289,7 @@ export default function AIQuizGenerator() {
                       {/* Detailed Question Review List */}
                       <div className="border-t border-white/10 pt-6 text-left flex flex-col gap-4">
                         <h4 className="text-sm font-bold text-slate-300">Answers Review Key</h4>
-                        {selectedQuiz.questions.map((q, idx) => {
+                        {activeQuestions.map((q, idx) => {
                           const userAns = userAnswers[q.id];
                           const isCorrect = q.type === QuestionType.MCQ
                             ? String(userAns || '').trim().toUpperCase() === String(q.correctAnswer).trim().toUpperCase() ||
@@ -2289,7 +2365,7 @@ export default function AIQuizGenerator() {
                     <div className="flex flex-col gap-6">
                       {/* Grid Progress Indicators with Spacious Touch Sizes */}
                       <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap pb-4 border-b border-white/[0.06]">
-                        {selectedQuiz.questions.map((q, idx) => {
+                        {activeQuestions.map((q, idx) => {
                           const isCurrent = activeQuestionIndex === idx;
                           const isChecked = showInstantFeedback && checkedQuestions[q.id];
                           const isRight = isChecked && checkSingleAnswerCorrectness(q, userAnswers[q.id]);
@@ -2324,14 +2400,14 @@ export default function AIQuizGenerator() {
 
                       {/* Display Question Box */}
                       {(() => {
-                        const q = selectedQuiz.questions[activeQuestionIndex];
+                        const q = activeQuestions[activeQuestionIndex];
                         if (!q) return null;
 
                         return (
                           <div className="flex flex-col gap-5">
                             {/* Meta row */}
                             <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase">
-                              <span>Question {activeQuestionIndex + 1} of {selectedQuiz.questions.length}</span>
+                              <span>Question {activeQuestionIndex + 1} of {activeQuestions.length}</span>
                               <div className="flex items-center gap-2">
                                 {q.difficulty && (
                                   <span className={cn(
@@ -2651,7 +2727,7 @@ export default function AIQuizGenerator() {
                               </button>
 
                               <button
-                                disabled={activeQuestionIndex === selectedQuiz.questions.length - 1}
+                                disabled={activeQuestionIndex === activeQuestions.length - 1}
                                 onClick={() => setActiveQuestionIndex(prev => prev + 1)}
                                 className="flex items-center gap-1.5 px-3.5 py-2 border border-white/10 rounded-lg text-xs font-semibold hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-slate-300 cursor-pointer"
                               >
@@ -3587,6 +3663,90 @@ export default function AIQuizGenerator() {
           </div>
         </div>
       </main>
+
+      {/* Quiz Setup Modal */}
+      {showQuizSetupModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[#111115] border border-white/10 rounded-2xl p-6 shadow-2xl max-w-sm w-full"
+          >
+            <div className="flex items-center justify-between mb-5 border-b border-white/5 pb-4">
+              <h3 className="text-lg font-black text-white">Quiz Settings</h3>
+              <button
+                onClick={() => setShowQuizSetupModal(null)}
+                className="text-slate-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full p-1.5 transition-all cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <div className="p-4 bg-[#0E0E11] border border-white/5 rounded-xl">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <div className="relative flex items-center justify-center mt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={quizConfig.randomizeQuestions}
+                      onChange={(e) => setQuizConfig(prev => ({ ...prev, randomizeQuestions: e.target.checked }))}
+                      className="peer sr-only"
+                    />
+                    <div className="w-5 h-5 rounded border border-white/20 bg-white/5 peer-checked:bg-indigo-500 peer-checked:border-indigo-500 transition-all flex items-center justify-center">
+                      <Check className="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100" />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="block text-sm font-bold text-slate-200">Randomize Questions</span>
+                    <span className="block text-xs text-slate-500 mt-1">Shuffle the order of questions in this attempt.</span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="p-4 bg-[#0E0E11] border border-white/5 rounded-xl">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <div className="relative flex items-center justify-center mt-0.5">
+                    <input
+                      type="checkbox"
+                      checked={quizConfig.randomizeChoices}
+                      onChange={(e) => setQuizConfig(prev => ({ ...prev, randomizeChoices: e.target.checked }))}
+                      className="peer sr-only"
+                    />
+                    <div className="w-5 h-5 rounded border border-white/20 bg-white/5 peer-checked:bg-indigo-500 peer-checked:border-indigo-500 transition-all flex items-center justify-center">
+                      <Check className="w-3.5 h-3.5 text-white opacity-0 peer-checked:opacity-100" />
+                    </div>
+                  </div>
+                  <div>
+                    <span className="block text-sm font-bold text-slate-200">Randomize Answer Choices</span>
+                    <span className="block text-xs text-slate-500 mt-1">Shuffle options (A, B, C, D) for each multiple-choice question.</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-5 border-t border-white/5 flex gap-3">
+              <button
+                onClick={() => setShowQuizSetupModal(null)}
+                className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 text-white font-bold rounded-xl transition-all cursor-pointer text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (showQuizSetupModal) {
+                    startQuiz(showQuizSetupModal);
+                    setShowQuizSetupModal(null);
+                  }
+                }}
+                className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl transition-all shadow-md cursor-pointer text-xs flex items-center justify-center gap-2"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Start Quiz</span>
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Manual Add Question Dialog */}
       {showAddQuestionModal && (

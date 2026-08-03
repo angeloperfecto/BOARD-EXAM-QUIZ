@@ -55,6 +55,7 @@ export interface QuizAttempt {
   completedAt?: string | null;
   status: 'in_progress' | 'completed';
   startedAt: string;
+  activeQuestions?: Question[]; // Preserved randomized order and choices
 }
 
 export interface ExtractionLog {
