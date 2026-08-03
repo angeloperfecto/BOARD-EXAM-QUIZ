@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Upload,
@@ -33,11 +33,45 @@ import {
   CheckSquare,
   HelpCircle,
   Clock,
-  UserCheck
+  UserCheck,
+  History,
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  Trophy,
+  Flame,
+  Calendar,
+  Filter,
+  ArrowUpDown,
+  Search,
+  CheckCircle2,
+  XCircle,
+  Zap,
+  Star,
+  Info
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuestionType, Question, Quiz, QuizAttempt, ExtractionLog } from '@/lib/types';
 import { MathRenderer } from '@/components/MathRenderer';
+
+// Recharts components imports
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+  AreaChart,
+  Area,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
 
 // Dynamic script loader for PDF.js CDN
 const loadPDFJS = async (): Promise<any> => {
@@ -142,11 +176,28 @@ export default function AIQuizGenerator() {
   // Application states
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
-  const [activeMode, setActiveMode] = useState<'list' | 'take' | 'edit' | 'extract'>('list');
+  const [activeMode, setActiveMode] = useState<'list' | 'take' | 'edit' | 'extract' | 'history'>('list');
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>({});
   const [quizAttempt, setQuizAttempt] = useState<QuizAttempt | null>(null);
   const [showResults, setShowResults] = useState<boolean>(false);
+
+  // Score History, Progress Dashboard, and Gamification States
+  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
+  const [selectedAttemptId, setSelectedAttemptId] = useState<string | null>(null);
+  
+  // Filtering and Sorting for History Dashboard
+  const [historyFilterSubject, setHistoryFilterSubject] = useState<string>('All');
+  const [historyFilterQuiz, setHistoryFilterQuiz] = useState<string>('All');
+  const [historySortBy, setHistorySortBy] = useState<'date_newest' | 'date_oldest' | 'score_highest' | 'score_lowest' | 'time_spent'>('date_newest');
+  
+  // Motivational Achievements states
+  const [celebrationBanner, setCelebrationBanner] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    badgeIcon: 'gold' | 'silver' | 'bronze' | 'streak' | 'perfection' | 'speed' | 'milestone';
+  } | null>(null);
 
   // Instant Feedback Mode states
   const [showInstantFeedback, setShowInstantFeedback] = useState<boolean>(() => {
@@ -311,6 +362,289 @@ export default function AIQuizGenerator() {
     setQuizzes(updatedQuizzes);
     localStorage.setItem('ai_quiz_generator_quizzes', JSON.stringify(updatedQuizzes));
   };
+
+  // Load score history attempts from local storage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('ai_quiz_generator_attempts');
+      if (stored) {
+        try {
+          setAttempts(JSON.parse(stored));
+        } catch (e) {
+          console.error('Error loading attempts:', e);
+        }
+      }
+    }
+  }, []);
+
+  // Save attempts helper
+  const saveAttemptsToStorage = (updatedAttempts: QuizAttempt[]) => {
+    setAttempts(updatedAttempts);
+    localStorage.setItem('ai_quiz_generator_attempts', JSON.stringify(updatedAttempts));
+  };
+
+  // Get details for any attempt
+  const getAttemptQuizDetails = (attempt: QuizAttempt) => {
+    const qz = quizzes.find(q => q.id === attempt.quizId);
+    return {
+      title: qz ? qz.title : (attempt.quizId.startsWith('sample') ? 'PRC Board Exam Reviewer (Civil Engineering & NSCP)' : 'Archived Quiz'),
+      subject: qz?.subject || (attempt.quizId.startsWith('sample') ? 'Civil & Structural Engineering' : 'General Study'),
+      category: qz?.category || 'Extracted Exam'
+    };
+  };
+
+  // Helper to format duration
+  const formatDuration = (startedAt: string, completedAt?: string | null) => {
+    if (!completedAt) return 'N/A';
+    const start = new Date(startedAt).getTime();
+    const end = new Date(completedAt).getTime();
+    const diffSeconds = Math.round((end - start) / 1000);
+    
+    if (diffSeconds < 60) {
+      return `${diffSeconds}s`;
+    }
+    const minutes = Math.floor(diffSeconds / 60);
+    const seconds = diffSeconds % 60;
+    return `${minutes}m ${seconds}s`;
+  };
+
+  // Format Date and Time
+  const formatDateTime = (isoString?: string | null) => {
+    if (!isoString) return 'N/A';
+    const d = new Date(isoString);
+    return d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // Dynamic consecutive streak logic
+  const studyStreak = useMemo(() => {
+    if (attempts.length === 0) return 0;
+    
+    // Extract unique dates of attempts in YYYY-MM-DD format
+    const dates = Array.from(new Set(
+      attempts
+        .filter(a => a.completedAt)
+        .map(a => new Date(a.completedAt!).toLocaleDateString('en-CA')) // returns YYYY-MM-DD
+    )).sort((a, b) => new Date(b).getTime() - new Date(a).getTime()); // sort newest first
+    
+    if (dates.length === 0) return 0;
+    
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const yesterdayStr = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+    
+    // If the latest attempt is older than yesterday, the streak is broken (0)
+    if (dates[0] !== todayStr && dates[0] !== yesterdayStr) {
+      return 0;
+    }
+    
+    let streak = 1;
+    for (let i = 0; i < dates.length - 1; i++) {
+      const current = new Date(dates[i]);
+      const next = new Date(dates[i+1]);
+      const diffTime = current.getTime() - next.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) {
+        streak++;
+      } else if (diffDays > 1) {
+        break; // streak broken
+      }
+    }
+    
+    return streak;
+  }, [attempts]);
+
+  // Analytics helper stats
+  const analyticsSummary = useMemo(() => {
+    if (attempts.length === 0) {
+      return {
+        highestPercent: 0,
+        averagePercent: 0,
+        totalCorrect: 0,
+        totalQuestions: 0,
+        improvingTrend: 'Stable'
+      };
+    }
+
+    const percentages = attempts.map(a => Math.round((a.score / a.totalQuestions) * 100));
+    const highestPercent = Math.max(...percentages);
+    const averagePercent = Math.round(percentages.reduce((a, b) => a + b, 0) / percentages.length);
+    const totalCorrect = attempts.reduce((acc, a) => acc + a.score, 0);
+    const totalQuestions = attempts.reduce((acc, a) => acc + a.totalQuestions, 0);
+
+    return {
+      highestPercent,
+      averagePercent,
+      totalCorrect,
+      totalQuestions
+    };
+  }, [attempts]);
+
+  // Gamification badges check
+  const unlockedBadges = useMemo(() => {
+    const badges = [
+      {
+        id: 'first_victory',
+        name: 'First Victory',
+        description: 'Scored 80% or higher on a quiz',
+        unlocked: attempts.some(a => (a.score / a.totalQuestions) >= 0.8),
+        icon: Trophy,
+        color: 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+      },
+      {
+        id: 'perfect_finish',
+        name: 'Perfect Finish',
+        description: 'Scored a flawless 100% on any quiz',
+        unlocked: attempts.some(a => a.score === a.totalQuestions && a.totalQuestions > 0),
+        icon: Star,
+        color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
+      },
+      {
+        id: 'dedicated_learner',
+        name: 'Dedicated Learner',
+        description: 'Completed 5 or more quiz attempts',
+        unlocked: attempts.length >= 5,
+        icon: Award,
+        color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20'
+      },
+      {
+        id: 'speedy_solver',
+        name: 'Speed Runner',
+        description: 'Completed a quiz under 40 seconds with 80% accuracy',
+        unlocked: attempts.some(a => {
+          if (!a.completedAt) return false;
+          const diff = (new Date(a.completedAt).getTime() - new Date(a.startedAt).getTime()) / 1000;
+          return diff < 40 && (a.score / a.totalQuestions) >= 0.8;
+        }),
+        icon: Zap,
+        color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20'
+      },
+      {
+        id: 'multi_subject',
+        name: 'Polymath',
+        description: 'Completed quizzes in at least 2 different subjects',
+        unlocked: new Set(attempts.map(a => getAttemptQuizDetails(a).subject)).size >= 2,
+        icon: BookOpen,
+        color: 'text-purple-400 bg-purple-500/10 border-purple-500/20'
+      },
+      {
+        id: 'streak_flame',
+        name: 'Streak Pioneer',
+        description: 'Maintained a 2-day active study streak',
+        unlocked: studyStreak >= 2,
+        icon: Flame,
+        color: 'text-orange-400 bg-orange-500/10 border-orange-500/20'
+      }
+    ];
+    return badges;
+  }, [attempts, studyStreak, quizzes]);
+
+  // Comparative score trend comparison
+  const getAttemptTrendComparison = (attempt: QuizAttempt, index: number, allAttempts: QuizAttempt[]) => {
+    const sameQuizAttempts = allAttempts
+      .filter(a => a.quizId === attempt.quizId && a.completedAt)
+      .sort((a, b) => new Date(a.completedAt!).getTime() - new Date(b.completedAt!).getTime()); // oldest first
+      
+    const thisIndex = sameQuizAttempts.findIndex(a => a.id === attempt.id);
+    if (thisIndex <= 0) {
+      return { text: 'First Attempt', isBetter: null, diff: 0 };
+    }
+    
+    const prevAttempt = sameQuizAttempts[thisIndex - 1];
+    const prevPct = Math.round((prevAttempt.score / prevAttempt.totalQuestions) * 100);
+    const thisPct = Math.round((attempt.score / attempt.totalQuestions) * 100);
+    const diff = thisPct - prevPct;
+    
+    if (diff > 0) {
+      return { text: `+${diff}% better than previous`, isBetter: true, diff };
+    } else if (diff < 0) {
+      return { text: `${diff}% worse than previous`, isBetter: false, diff };
+    } else {
+      return { text: 'Stable performance', isBetter: null, diff: 0 };
+    }
+  };
+
+  // Filtered and sorted list for display
+  const filteredAndSortedAttempts = useMemo(() => {
+    let result = [...attempts];
+
+    if (historyFilterSubject !== 'All') {
+      result = result.filter(a => getAttemptQuizDetails(a).subject === historyFilterSubject);
+    }
+
+    if (historyFilterQuiz !== 'All') {
+      result = result.filter(a => a.quizId === historyFilterQuiz);
+    }
+
+    result.sort((a, b) => {
+      if (historySortBy === 'date_newest') {
+        return new Date(b.completedAt || b.startedAt).getTime() - new Date(a.completedAt || a.startedAt).getTime();
+      }
+      if (historySortBy === 'date_oldest') {
+        return new Date(a.completedAt || a.startedAt).getTime() - new Date(b.completedAt || b.startedAt).getTime();
+      }
+      if (historySortBy === 'score_highest') {
+        const scoreA = a.totalQuestions > 0 ? (a.score / a.totalQuestions) : 0;
+        const scoreB = b.totalQuestions > 0 ? (b.score / b.totalQuestions) : 0;
+        return scoreB - scoreA;
+      }
+      if (historySortBy === 'score_lowest') {
+        const scoreA = a.totalQuestions > 0 ? (a.score / a.totalQuestions) : 0;
+        const scoreB = b.totalQuestions > 0 ? (b.score / b.totalQuestions) : 0;
+        return scoreA - scoreB;
+      }
+      if (historySortBy === 'time_spent') {
+        const timeA = new Date(a.completedAt || '').getTime() - new Date(a.startedAt).getTime();
+        const timeB = new Date(b.completedAt || '').getTime() - new Date(b.startedAt).getTime();
+        return timeA - timeB;
+      }
+      return 0;
+    });
+
+    return result;
+  }, [attempts, historyFilterSubject, historyFilterQuiz, historySortBy, quizzes]);
+
+  // Unique subjects and quizzes for dropdown selects
+  const uniqueSubjectsInHistory = useMemo(() => {
+    const subjectsSet = new Set<string>();
+    attempts.forEach(a => {
+      const details = getAttemptQuizDetails(a);
+      if (details.subject) subjectsSet.add(details.subject);
+    });
+    return Array.from(subjectsSet);
+  }, [attempts, quizzes]);
+
+  const uniqueQuizzesInHistory = useMemo(() => {
+    const quizMap = new Map<string, string>();
+    attempts.forEach(a => {
+      const details = getAttemptQuizDetails(a);
+      quizMap.set(a.quizId, details.title);
+    });
+    return Array.from(quizMap.entries()).map(([id, title]) => ({ id, title }));
+  }, [attempts, quizzes]);
+
+  // Chart plotting dataset
+  const chartData = useMemo(() => {
+    return [...attempts]
+      .filter(a => a.completedAt)
+      .reverse() // chronological
+      .map((a, index) => {
+        const details = getAttemptQuizDetails(a);
+        return {
+          name: `Attempt ${index + 1}`,
+          shortDate: new Date(a.completedAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          quizTitle: details.title,
+          percentage: Math.round((a.score / a.totalQuestions) * 100),
+          correct: a.score,
+          incorrect: a.totalQuestions - a.score,
+        };
+      });
+  }, [attempts, quizzes]);
 
   // Check PDF.js capability on mount
   useEffect(() => {
@@ -735,17 +1069,76 @@ export default function AIQuizGenerator() {
       }
     });
 
+    const nowStr = new Date().toISOString();
     const finishedAttempt: QuizAttempt = {
       ...quizAttempt,
       answers: userAnswers,
       score,
       status: 'completed',
-      completedAt: new Date().toISOString()
+      completedAt: nowStr
     };
 
     setQuizAttempt(finishedAttempt);
     setShowResults(true);
     localStorage.removeItem(`quiz_attempt_${selectedQuiz.id}`); // Clear temporary state
+
+    // 1. Calculate achievements & milestones
+    const previousAttemptsForQuiz = attempts.filter(att => att.quizId === selectedQuiz.id);
+    const hasPreviousAttempts = previousAttemptsForQuiz.length > 0;
+    const highestPreviousScore = hasPreviousAttempts
+      ? Math.max(...previousAttemptsForQuiz.map(att => att.score))
+      : -1;
+
+    // 2. Save completed attempt to score history list
+    const updatedAttempts = [finishedAttempt, ...attempts];
+    saveAttemptsToStorage(updatedAttempts);
+
+    // 3. Motivational triggers based on performance
+    const totalQs = selectedQuiz.questions.length;
+    const percentage = totalQs > 0 ? Math.round((score / totalQs) * 100) : 0;
+    const durationMs = new Date(nowStr).getTime() - new Date(quizAttempt.startedAt).getTime();
+    const durationSeconds = Math.round(durationMs / 1000);
+
+    let title = "";
+    let message = "";
+    let badgeIcon: 'gold' | 'silver' | 'bronze' | 'streak' | 'perfection' | 'speed' | 'milestone' = 'bronze';
+    let shouldCelebrate = false;
+
+    if (percentage === 100) {
+      title = "Perfect Score! 🏆";
+      message = `Incredible! You got a flawless 100% (${score}/${totalQs}) on "${selectedQuiz.title}"! You have master-level command of this material!`;
+      badgeIcon = "perfection";
+      shouldCelebrate = true;
+    } else if (hasPreviousAttempts && score > highestPreviousScore) {
+      title = "New Personal Best! 🎉";
+      const diff = score - highestPreviousScore;
+      message = `Outstanding progress! You beat your previous high score by +${diff} correct answer${diff > 1 ? 's' : ''} and set a new record of ${score}/${totalQs} (${percentage}%)!`;
+      badgeIcon = "gold";
+      shouldCelebrate = true;
+    } else if (!hasPreviousAttempts && percentage >= 80) {
+      title = "First Flight Success! 🚀";
+      message = `Awesome start! You scored a solid ${percentage}% (${score}/${totalQs}) on your first attempt of "${selectedQuiz.title}"!`;
+      badgeIcon = "silver";
+      shouldCelebrate = true;
+    } else if (durationSeconds > 5 && durationSeconds < 40 && percentage >= 80 && totalQs >= 3) {
+      title = "Speed Runner! ⚡";
+      message = `Blazing fast! You completed this quiz in just ${durationSeconds} seconds with an outstanding ${percentage}% score!`;
+      badgeIcon = "speed";
+      shouldCelebrate = true;
+    }
+
+    if (shouldCelebrate) {
+      setCelebrationBanner({
+        show: true,
+        title,
+        message,
+        badgeIcon
+      });
+      // Auto-dismiss celebration after 8 seconds
+      setTimeout(() => {
+        setCelebrationBanner(prev => prev ? { ...prev, show: false } : null);
+      }, 8000);
+    }
   };
 
   // Resume unfinished quiz from storage if any
@@ -1005,11 +1398,12 @@ export default function AIQuizGenerator() {
                   onClick={() => {
                     setActiveMode('list');
                     setSelectedQuiz(null);
+                    setSelectedAttemptId(null);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left",
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left cursor-pointer",
                     activeMode === 'list' && !selectedQuiz
-                      ? "bg-white/5 text-white border-l-4 border-indigo-500"
+                      ? "bg-white/5 text-white border-l-4 border-indigo-500 font-bold"
                       : "text-slate-400 hover:bg-white/5"
                   )}
                 >
@@ -1019,8 +1413,30 @@ export default function AIQuizGenerator() {
                 </button>
 
                 <button
+                  onClick={() => {
+                    setActiveMode('history');
+                    setSelectedQuiz(null);
+                    setSelectedAttemptId(null);
+                  }}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left cursor-pointer",
+                    activeMode === 'history'
+                      ? "bg-white/5 text-white border-l-4 border-indigo-500 font-bold"
+                      : "text-slate-400 hover:bg-white/5"
+                  )}
+                >
+                  <History className="w-4 h-4 text-slate-500" />
+                  <span className="flex-grow">Score History & Analytics</span>
+                  {attempts.length > 0 && (
+                    <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-xs font-bold rounded-full border border-indigo-500/20">
+                      {attempts.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
                   onClick={mergeQuizzes}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-indigo-400 hover:bg-white/5 transition-all text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-indigo-400 hover:bg-white/5 transition-all text-left cursor-pointer"
                 >
                   <Layers className="w-4 h-4 text-indigo-400" />
                   <span>Merge All Quizzes</span>
@@ -1281,91 +1697,145 @@ export default function AIQuizGenerator() {
                       </button>
                     </div>
                   ) : (
-                    filteredQuizzes.map(quiz => (
-                      <motion.div
-                        key={quiz.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="bg-[#111114] border border-white/10 hover:border-indigo-500 rounded-2xl p-6 shadow-lg hover:shadow-[0_4px_25px_rgba(0,0,0,0.4)] transition-all flex flex-col gap-4"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-grow">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {quiz.subject && (
-                                <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase rounded">
-                                  {quiz.subject}
-                                </span>
-                              )}
-                              {quiz.category && (
-                                <span className="px-2 py-0.5 bg-white/5 text-slate-400 text-[10px] font-bold uppercase rounded">
-                                  {quiz.category}
-                                </span>
-                              )}
-                              {quiz.isPublished ? (
-                                <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase rounded flex items-center gap-1">
-                                  <ShieldCheck className="w-3 h-3" />
-                                  <span>Published</span>
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold uppercase rounded">
-                                  Draft Review
-                                </span>
+                    filteredQuizzes.map(quiz => {
+                      const quizAttempts = attempts.filter(a => a.quizId === quiz.id && a.status === 'completed');
+                      const highestScoreAttempt = quizAttempts.length > 0 ? quizAttempts.reduce((max, a) => (a.score / a.totalQuestions) > (max.score / max.totalQuestions) ? a : max, quizAttempts[0]) : null;
+                      const latestAttempt = quizAttempts.length > 0 ? [...quizAttempts].sort((a, b) => new Date(b.completedAt || b.startedAt).getTime() - new Date(a.completedAt || a.startedAt).getTime())[0] : null;
+
+                      return (
+                        <motion.div
+                          key={quiz.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="bg-[#111114] border border-white/10 hover:border-indigo-500 rounded-2xl p-6 shadow-lg hover:shadow-[0_4px_25px_rgba(0,0,0,0.4)] transition-all flex flex-col gap-4"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-grow">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {quiz.subject && (
+                                  <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase rounded">
+                                    {quiz.subject}
+                                  </span>
+                                )}
+                                {quiz.category && (
+                                  <span className="px-2 py-0.5 bg-white/5 text-slate-400 text-[10px] font-bold uppercase rounded">
+                                    {quiz.category}
+                                  </span>
+                                )}
+                                {quiz.isPublished ? (
+                                  <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase rounded flex items-center gap-1">
+                                    <ShieldCheck className="w-3 h-3" />
+                                    <span>Published</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold uppercase rounded">
+                                    Draft Review
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="text-base font-bold text-white mt-2 hover:text-indigo-400 cursor-pointer" onClick={() => { setSelectedQuiz(quiz); startQuiz(quiz); }}>
+                                {quiz.title}
+                              </h3>
+                              {quiz.description && (
+                                <p className="text-xs text-slate-400 mt-1 line-clamp-2">{quiz.description}</p>
                               )}
                             </div>
-                            <h3 className="text-base font-bold text-white mt-2 hover:text-indigo-400 cursor-pointer" onClick={() => { setSelectedQuiz(quiz); startQuiz(quiz); }}>
-                              {quiz.title}
-                            </h3>
-                            {quiz.description && (
-                              <p className="text-xs text-slate-400 mt-1 line-clamp-2">{quiz.description}</p>
-                            )}
+
+                            <div className="text-right flex-shrink-0">
+                              <span className="text-lg font-black text-indigo-400 block">{quiz.questions.length}</span>
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">Questions</span>
+                            </div>
                           </div>
 
-                          <div className="text-right flex-shrink-0">
-                            <span className="text-lg font-black text-indigo-400 block">{quiz.questions.length}</span>
-                            <span className="text-[10px] font-bold text-slate-500 uppercase">Questions</span>
+                          {/* Dynamic Quiz Attempts and Score Panel */}
+                          {quizAttempts.length > 0 ? (
+                            <div className="flex items-center gap-4 flex-wrap bg-white/5 border border-white/5 rounded-xl p-3">
+                              <div className="flex items-center gap-2">
+                                <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Best Score</span>
+                                  <span className="text-xs font-black text-white mt-0.5 block">
+                                    {highestScoreAttempt ? `${highestScoreAttempt.score}/${highestScoreAttempt.totalQuestions}` : '0/0'} 
+                                    <span className="text-amber-400 text-[10px] font-bold ml-1">
+                                      ({highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}%)
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+                              
+                              <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
+
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Latest Score</span>
+                                  <span className="text-xs font-black text-white mt-0.5 block">
+                                    {latestAttempt ? `${latestAttempt.score}/${latestAttempt.totalQuestions}` : '0/0'}
+                                    <span className="text-indigo-400 text-[10px] font-bold ml-1">
+                                      ({latestAttempt ? Math.round((latestAttempt.score / latestAttempt.totalQuestions) * 100) : 0}%)
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
+
+                              <div className="flex items-center gap-2">
+                                <Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Attempts</span>
+                                  <span className="text-xs font-black text-white mt-0.5 block">{quizAttempts.length} Completed</span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-white/[0.02] border border-white/5 p-2 rounded-xl">
+                              <HelpCircle className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                              <span>No attempts completed yet. Click &ldquo;Take Quiz&rdquo; to test your skills!</span>
+                            </div>
+                          )}
+
+                          <div className="border-t border-white/5 pt-4 flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>Created: {new Date(quiz.createdAt).toLocaleDateString()}</span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {/* Delete Quiz Access */}
+                              <button
+                                onClick={() => setQuizToDelete(quiz)}
+                                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent hover:border-red-500/20"
+                                title="Delete Quiz"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Question Manager / Admin Panel Access */}
+                              <button
+                                onClick={() => {
+                                  setSelectedQuiz(quiz);
+                                  setActiveMode('edit');
+                                }}
+                                className="px-3 py-1.5 hover:bg-white/10 text-slate-300 font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <Settings2 className="w-3.5 h-3.5" />
+                                <span>Manage Quiz ({quiz.questions.length})</span>
+                              </button>
+
+                              {/* Take Quiz Access */}
+                              <button
+                                onClick={() => checkAndResumeQuiz(quiz)}
+                                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span>Take Quiz</span>
+                              </button>
+                            </div>
                           </div>
-                        </div>
-
-                        <div className="border-t border-white/5 pt-4 flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
-                          <div className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>Created: {new Date(quiz.createdAt).toLocaleDateString()}</span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {/* Delete Quiz Access */}
-                            <button
-                              onClick={() => setQuizToDelete(quiz)}
-                              className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent hover:border-red-500/20"
-                              title="Delete Quiz"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Question Manager / Admin Panel Access */}
-                            <button
-                              onClick={() => {
-                                setSelectedQuiz(quiz);
-                                setActiveMode('edit');
-                              }}
-                              className="px-3 py-1.5 hover:bg-white/10 text-slate-300 font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
-                            >
-                              <Settings2 className="w-3.5 h-3.5" />
-                              <span>Manage Quiz ({quiz.questions.length})</span>
-                            </button>
-
-                            {/* Take Quiz Access */}
-                            <button
-                              onClick={() => checkAndResumeQuiz(quiz)}
-                              className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
-                            >
-                              <BookOpen className="w-3.5 h-3.5" />
-                              <span>Take Quiz</span>
-                            </button>
-                          </div>
-                        </div>
-                      </motion.div>
-                    ))
+                        </motion.div>
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -2133,6 +2603,694 @@ export default function AIQuizGenerator() {
                 </div>
               </motion.div>
             )}
+
+            {/* MODE 5: SCORE HISTORY & PERFORMANCE DASHBOARD */}
+            {activeMode === 'history' && (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col gap-8"
+              >
+                {selectedAttemptId ? (
+                  /* SUB-VIEW: ATTEMPT ANSWER REVIEW DETAIL DRILLDOWN */
+                  (() => {
+                    const attempt = attempts.find(a => a.id === selectedAttemptId);
+                    if (!attempt) return null;
+                    const qz = quizzes.find(q => q.id === attempt.quizId);
+                    const qzDetails = getAttemptQuizDetails(attempt); // fallback if missing
+                    const qzQuestions = qz?.questions || [];
+                    const pct = qzQuestions.length > 0 ? Math.round((attempt.score / qzQuestions.length) * 100) : 0;
+                    
+                    return (
+                      <div className="bg-[#111114] border border-white/10 rounded-2xl shadow-xl overflow-hidden flex flex-col">
+                        {/* Header details */}
+                        <div className="p-6 border-b border-white/10 bg-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div className="flex flex-col gap-1 min-w-0">
+                            <button
+                              onClick={() => setSelectedAttemptId(null)}
+                              className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-bold mb-2 uppercase tracking-wide cursor-pointer"
+                            >
+                              <ArrowLeft className="w-3.5 h-3.5" />
+                              <span>Back to History Overview</span>
+                            </button>
+                            <h2 className="text-xl font-extrabold text-white truncate">{qz?.title || "Archived Quiz Attempt"}</h2>
+                            <p className="text-xs text-slate-400">
+                              Subject: <span className="text-indigo-300 font-bold">{qz?.subject || "General"}</span> • Category: <span className="text-slate-200">{qz?.category || "Extracted Exam"}</span>
+                            </p>
+                          </div>
+                          
+                          <div className="flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center p-3.5 bg-[#0A0A0B]/65 border border-white/10 rounded-xl flex-shrink-0 gap-1 min-w-[160px]">
+                            <div className="text-right">
+                              <p className="text-[10px] text-slate-500 font-extrabold uppercase">Final Score</p>
+                              <p className="text-2xl font-black text-white">{attempt.score} <span className="text-slate-400 text-sm font-normal">/ {qzQuestions.length || attempt.totalQuestions}</span></p>
+                            </div>
+                            <span className={cn(
+                              "px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border",
+                              pct >= 90 && "bg-emerald-500/10 text-emerald-400 border-emerald-500/25",
+                              pct >= 75 && pct < 90 && "bg-indigo-500/10 text-indigo-400 border-indigo-500/25",
+                              pct < 75 && "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                            )}>
+                              {pct}% Accuracy
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Summary breakdown bar */}
+                        <div className="p-6 bg-[#0E0E11] border-b border-white/5 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                          <div className="flex items-center gap-2.5 p-2.5 bg-white/5 border border-white/5 rounded-xl">
+                            <Clock className="w-4 h-4 text-indigo-400" />
+                            <div>
+                              <p className="text-slate-500 font-bold uppercase text-[9px] tracking-wider">Time Spent</p>
+                              <p className="text-slate-200 font-bold">{formatDuration(attempt.startedAt, attempt.completedAt)}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2.5 p-2.5 bg-white/5 border border-white/5 rounded-xl">
+                            <Calendar className="w-4 h-4 text-indigo-400" />
+                            <div>
+                              <p className="text-slate-500 font-bold uppercase text-[9px] tracking-wider">Completed At</p>
+                              <p className="text-slate-200 font-bold">{formatDateTime(attempt.completedAt)}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2.5 p-2.5 bg-white/5 border border-white/5 rounded-xl">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            <div>
+                              <p className="text-slate-500 font-bold uppercase text-[9px] tracking-wider">Correct Answers</p>
+                              <p className="text-emerald-400 font-bold">{attempt.score}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2.5 p-2.5 bg-white/5 border border-white/5 rounded-xl">
+                            <XCircle className="w-4 h-4 text-red-400" />
+                            <div>
+                              <p className="text-slate-500 font-bold uppercase text-[9px] tracking-wider">Incorrect Answers</p>
+                              <p className="text-red-400 font-bold">{(qzQuestions.length || attempt.totalQuestions) - attempt.score}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* List of questions with feedback */}
+                        <div className="p-6 flex flex-col gap-6 max-h-[60vh] overflow-y-auto">
+                          {qzQuestions.length === 0 ? (
+                            <div className="text-center py-12 text-slate-500 border border-dashed border-white/10 rounded-2xl">
+                              <HelpCircle className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+                              <p className="text-sm font-semibold">Quiz Details Stored, but Question Text Unavailable</p>
+                              <p className="text-xs text-slate-600 mt-1">This quiz has been deleted from your library, but you answered {attempt.score} out of {attempt.totalQuestions} questions correctly.</p>
+                            </div>
+                          ) : (
+                            qzQuestions.map((q, qidx) => {
+                              const userAns = attempt.answers[q.id];
+                              const isCorrect = checkSingleAnswerCorrectness(q, userAns);
+
+                              return (
+                                <div key={q.id} className="p-5 bg-[#0E0E11] border border-white/10 rounded-2xl flex flex-col gap-4">
+                                  {/* Header info */}
+                                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                                    <span className="text-xs font-bold text-indigo-400 uppercase tracking-wide">Question {qidx + 1} • {q.type}</span>
+                                    <span className={cn(
+                                      "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase border",
+                                      isCorrect
+                                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                        : "bg-red-500/10 text-red-400 border-red-500/20"
+                                    )}>
+                                      {isCorrect ? (
+                                        <>
+                                          <Check className="w-3 h-3" />
+                                          <span>Correct</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <X className="w-3 h-3" />
+                                          <span>Incorrect</span>
+                                        </>
+                                      )}
+                                    </span>
+                                  </div>
+
+                                  {/* Text */}
+                                  <div className="text-sm md:text-base text-slate-100 font-semibold leading-relaxed">
+                                    <MathRenderer text={q.text} />
+                                  </div>
+
+                                  {/* Choices (for MCQ) */}
+                                  {q.type === QuestionType.MCQ && q.choices && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
+                                      {q.choices.map((choice, cidx) => {
+                                        const isSelected = String(userAns || '').trim().toLowerCase() === choice.trim().toLowerCase() ||
+                                                          (getChoiceLetter(choice) && String(userAns || '').trim().toUpperCase() === getChoiceLetter(choice));
+                                        const isChoiceRight = isChoiceCorrect(q, choice);
+                                        
+                                        return (
+                                          <div
+                                            key={cidx}
+                                            className={cn(
+                                              "p-3 border rounded-xl flex items-center gap-3 text-xs leading-relaxed transition-all",
+                                              isChoiceRight
+                                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300 font-bold"
+                                                : isSelected
+                                                  ? "bg-red-500/10 border-red-500/30 text-red-300"
+                                                  : "bg-white/5 border-white/5 text-slate-400"
+                                            )}
+                                          >
+                                            <div className={cn(
+                                              "w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-black flex-shrink-0",
+                                              isChoiceRight
+                                                ? "bg-emerald-600 border-emerald-600 text-white"
+                                                : isSelected
+                                                  ? "bg-red-600 border-red-600 text-white"
+                                                  : "border-white/10 text-slate-500"
+                                            )}>
+                                              {isChoiceRight ? <Check className="w-3 h-3" /> : isSelected ? <X className="w-3 h-3" /> : String.fromCharCode(65 + cidx)}
+                                            </div>
+                                            <span><MathRenderer text={choice} /></span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {/* Matching pairs details */}
+                                  {q.type === QuestionType.MATCHING && q.matchingPairs && (
+                                    <div className="flex flex-col gap-2 mt-1">
+                                      {q.matchingPairs.map((pair, pidx) => {
+                                        const userMap = userAns as Record<string, string> || {};
+                                        const userMatch = userMap[pair.left] || 'No Selection';
+                                        const matchCorrect = userMatch === pair.right;
+                                        return (
+                                          <div key={pidx} className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs p-2.5 bg-[#111114] border border-white/5 rounded-xl">
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-semibold text-slate-300">{pair.left}</span>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                              <span>Mapped to: <strong className={matchCorrect ? "text-emerald-400" : "text-red-400"}>{userMatch}</strong></span>
+                                              {!matchCorrect && <span className="text-xs text-emerald-500 font-semibold">(Correct: {pair.right})</span>}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {/* Direct Answers summary */}
+                                  {q.type !== QuestionType.MCQ && q.type !== QuestionType.MATCHING && (
+                                    <div className="flex flex-col gap-2 p-3 border border-white/5 bg-[#111114] rounded-xl text-xs">
+                                      <p className="flex items-center gap-2">
+                                        <span className="text-slate-500 font-semibold">Your Answer:</span>
+                                        <strong className={isCorrect ? "text-emerald-400" : "text-red-400"}>
+                                          {String(userAns || 'No Answer provided')}
+                                        </strong>
+                                      </p>
+                                      {!isCorrect && (
+                                        <p className="flex items-center gap-2 border-t border-white/5 pt-2 mt-1">
+                                          <span className="text-slate-500 font-semibold">Correct Answer:</span>
+                                          <strong className="text-emerald-400">{String(q.correctAnswer || 'N/A')}</strong>
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Explanation banner */}
+                                  {q.explanation && (
+                                    <div className="mt-2 text-xs md:text-sm text-slate-200 bg-indigo-950/35 border border-indigo-500/25 p-4 rounded-xl font-medium leading-relaxed">
+                                      <div className="flex items-center gap-2.5 text-indigo-300 font-extrabold mb-1.5 uppercase tracking-wider text-[10px]">
+                                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                                        <span>Explanation & Context</span>
+                                      </div>
+                                      <div className="text-slate-300 whitespace-pre-line">
+                                        <MathRenderer text={q.explanation} />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Back bar */}
+                        <div className="p-6 border-t border-white/10 bg-[#111114] flex items-center justify-between">
+                          <button
+                            onClick={() => setSelectedAttemptId(null)}
+                            className="px-5 py-2.5 border border-white/10 rounded-xl hover:bg-white/10 text-slate-300 font-semibold text-sm transition-all cursor-pointer"
+                          >
+                            Close Details
+                          </button>
+                          
+                          {qz && (
+                            <button
+                              onClick={() => startQuiz(qz)}
+                              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-xl flex items-center gap-2 transition-all shadow-md cursor-pointer"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                              <span>Retake Quiz</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  /* MAIN DASHBOARD: CHARTS, STATS, LIST OF ATTEMPTS */
+                  <>
+                    {/* Welcome Streak card */}
+                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className={cn(
+                          "p-4 rounded-2xl flex-shrink-0 flex items-center justify-center border",
+                          studyStreak > 0
+                            ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+                            : "bg-white/5 text-slate-400 border-white/10"
+                        )}>
+                          <Flame className={cn("w-8 h-8", studyStreak > 0 && "animate-pulse")} />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-black text-white flex items-center gap-2">
+                            <span>Study Streak: {studyStreak} Day{studyStreak === 1 ? '' : 's'}</span>
+                            {studyStreak > 0 && <span className="px-2 py-0.5 bg-orange-500/15 text-orange-400 border border-orange-500/30 rounded-full text-[10px] font-black uppercase animate-pulse">Active 🔥</span>}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-1 max-w-md">
+                            {studyStreak > 0
+                              ? "Excellent dedication! Practicing daily strengthens recall speed and cements professional engineering and NSCP formulas."
+                              : "Practice makes perfect. Complete a quiz attempt today to build a consecutive study streak!"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Coach advice box */}
+                      <div className="w-full md:w-auto p-4 bg-indigo-950/25 border border-indigo-500/20 rounded-2xl text-xs max-w-sm flex items-start gap-3">
+                        <Sparkles className="w-5 h-5 text-indigo-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-extrabold text-indigo-300 uppercase tracking-wider text-[10px]">AI Study Coach Advice</p>
+                          <p className="text-slate-300 mt-1 leading-relaxed font-medium">
+                            {attempts.length === 0 && "No quiz completions detected. Jump into the 'Quiz Library' and run the civil engineering board exam compiler to test your initial knowledge!"}
+                            {attempts.length > 0 && analyticsSummary.averagePercent >= 90 && "Outstanding master accuracy! Focus on speed limits or merge all topics together into a customized final mega-board review exam."}
+                            {attempts.length > 0 && analyticsSummary.averagePercent >= 70 && analyticsSummary.averagePercent < 90 && "Great foundation! Leverage the 'Explanation & Context' sheets after attempts to review formulas on concrete covers or beam shears."}
+                            {attempts.length > 0 && analyticsSummary.averagePercent < 70 && "Keep working on core concepts. Try turning on 'Instant Feedback' mode in the quiz screen to learn and correct as you go."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="p-4 bg-[#0E0E11] border border-white/10 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-md hover:border-indigo-500/30 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Highest Score</span>
+                          <Trophy className="w-4 h-4 text-amber-400" />
+                        </div>
+                        <div className="mt-4">
+                          <p className="text-2xl font-black text-white">{attempts.length > 0 ? `${analyticsSummary.highestPercent}%` : '0%'}</p>
+                          <p className="text-[10px] text-slate-500 font-bold mt-1">Best Accuracy Run</p>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-[#0E0E11] border border-white/10 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-md hover:border-indigo-500/30 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Avg Accuracy</span>
+                          <Activity className="w-4 h-4 text-indigo-400" />
+                        </div>
+                        <div className="mt-4">
+                          <p className="text-2xl font-black text-white">{attempts.length > 0 ? `${analyticsSummary.averagePercent}%` : '0%'}</p>
+                          <p className="text-[10px] text-slate-500 font-bold mt-1">Weighted Mean</p>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-[#0E0E11] border border-white/10 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-md hover:border-indigo-500/30 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Study Streak</span>
+                          <Flame className="w-4 h-4 text-orange-400" />
+                        </div>
+                        <div className="mt-4">
+                          <p className="text-2xl font-black text-white">{studyStreak} Day{studyStreak === 1 ? '' : 's'}</p>
+                          <p className="text-[10px] text-slate-500 font-bold mt-1">Consecutive Days</p>
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-[#0E0E11] border border-white/10 rounded-2xl flex flex-col justify-between min-h-[100px] shadow-md hover:border-indigo-500/30 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Total Runs</span>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        </div>
+                        <div className="mt-4">
+                          <p className="text-2xl font-black text-white">{attempts.length} run{attempts.length === 1 ? '' : 's'}</p>
+                          <p className="text-[10px] text-slate-500 font-bold mt-1">Quiz Submissions</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Analytics charts panels */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Score Trend (Line Chart) */}
+                      <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 shadow-lg flex flex-col gap-4">
+                        <div>
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                            <TrendingUp className="w-4 h-4 text-indigo-400" />
+                            <span>Progress Trend Over Time</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 mt-1">Tracking your score accuracy percentage chronologically</p>
+                        </div>
+                        
+                        <div className="h-60 w-full mt-2">
+                          {chartData.length === 0 ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-xs text-slate-500 border border-dashed border-white/5 rounded-xl bg-[#0E0E11]/40 p-4 text-center">
+                              <BookOpen className="w-8 h-8 text-slate-600 mb-2" />
+                              <p className="font-semibold">No history trends to display</p>
+                              <p className="text-[10px] text-slate-600 mt-0.5">Complete quizzes to populate progress graphs.</p>
+                            </div>
+                          ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <defs>
+                                  <linearGradient id="colorPct" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25}/>
+                                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                <XAxis dataKey="shortDate" stroke="#64748b" fontSize={10} tickLine={false} />
+                                <YAxis domain={[0, 100]} stroke="#64748b" fontSize={10} tickLine={false} />
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: '#111114', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', fontSize: '11px' }}
+                                  labelClassName="font-extrabold text-white"
+                                />
+                                <Area type="monotone" dataKey="percentage" stroke="#6366f1" strokeWidth={2.5} fillOpacity={1} fill="url(#colorPct)" name="Accuracy (%)" />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Correct vs Incorrect Distribution (Bar Chart) */}
+                      <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 shadow-lg flex flex-col gap-4">
+                        <div>
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                            <Activity className="w-4 h-4 text-indigo-400" />
+                            <span>Correct vs Incorrect Answers</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 mt-1">Comparing correct/incorrect answer counts per submission</p>
+                        </div>
+                        
+                        <div className="h-60 w-full mt-2">
+                          {chartData.length === 0 ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-xs text-slate-500 border border-dashed border-white/5 rounded-xl bg-[#0E0E11]/40 p-4 text-center">
+                              <HelpCircle className="w-8 h-8 text-slate-600 mb-2" />
+                              <p className="font-semibold">No accuracy distribution to show</p>
+                              <p className="text-[10px] text-slate-600 mt-0.5">Submit answers to visualize answer ratios.</p>
+                            </div>
+                          ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                                <XAxis dataKey="shortDate" stroke="#64748b" fontSize={10} tickLine={false} />
+                                <YAxis stroke="#64748b" fontSize={10} tickLine={false} />
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: '#111114', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '12px', fontSize: '11px' }}
+                                  labelClassName="font-extrabold text-white"
+                                />
+                                <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
+                                <Bar dataKey="correct" fill="#10b981" name="Correct" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="incorrect" fill="#ef4444" name="Incorrect" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Subject mastery progress bars */}
+                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+                      <div>
+                        <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                          <BookOpen className="w-4 h-4 text-indigo-400" />
+                          <span>Subject Mastery Breakdown</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-1">Average score accuracy grouped by extracted subject fields</p>
+                      </div>
+
+                      {attempts.length === 0 ? (
+                        <p className="text-xs text-slate-500 py-4 text-center">No subject mastery data yet. Take quizzes across different topics to unlock analytics.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                          {(() => {
+                            // Compute average per subject
+                            const subStats: Record<string, { totalScore: number; totalQs: number; runs: number }> = {};
+                            attempts.forEach(a => {
+                              const d = getAttemptQuizDetails(a);
+                              if (!subStats[d.subject]) {
+                                subStats[d.subject] = { totalScore: 0, totalQs: 0, runs: 0 };
+                              }
+                              subStats[d.subject].totalScore += a.score;
+                              subStats[d.subject].totalQs += a.totalQuestions;
+                              subStats[d.subject].runs += 1;
+                            });
+
+                            return Object.entries(subStats).map(([subject, stats]) => {
+                              const pct = Math.round((stats.totalScore / stats.totalQs) * 100);
+                              return (
+                                <div key={subject} className="p-4 bg-[#0E0E11] border border-white/5 rounded-xl flex flex-col gap-2">
+                                  <div className="flex items-center justify-between text-xs font-bold">
+                                    <span className="text-slate-200 truncate pr-2 max-w-[200px]">{subject}</span>
+                                    <span className="text-indigo-400">{pct}% Mastery <span className="text-slate-500 font-normal">({stats.runs} attempt{stats.runs > 1 ? 's' : ''})</span></span>
+                                  </div>
+                                  <div className="w-full bg-white/5 border border-white/5 h-2 rounded-full overflow-hidden mt-1">
+                                    <div
+                                      className={cn(
+                                        "h-full rounded-full transition-all duration-300",
+                                        pct >= 90 && "bg-emerald-500",
+                                        pct >= 75 && pct < 90 && "bg-indigo-500",
+                                        pct < 75 && "bg-amber-500"
+                                      )}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            });
+                          })()}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Achievement badges showcase */}
+                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+                      <div>
+                        <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                          <Award className="w-4 h-4 text-indigo-400" />
+                          <span>Milestone Achievement Badges</span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-1">Gamified challenge milestones designed to motivate continuous learning</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 mt-2">
+                        {unlockedBadges.map(badge => {
+                          const IconComp = badge.icon;
+                          return (
+                            <div
+                              key={badge.id}
+                              className={cn(
+                                "p-4 border rounded-xl flex flex-col items-center justify-center text-center gap-2.5 transition-all shadow-md relative",
+                                badge.unlocked
+                                  ? "bg-[#0E0E11] border-indigo-500/30"
+                                  : "bg-[#0E0E11]/40 border-white/5 opacity-40 hover:opacity-60"
+                              )}
+                            >
+                              <div className={cn(
+                                "p-2.5 rounded-full border",
+                                badge.unlocked ? badge.color : "text-slate-600 bg-white/5 border-white/5"
+                              )}>
+                                <IconComp className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <p className="text-xs font-black text-slate-100 truncate max-w-[100px]">{badge.name}</p>
+                                <p className="text-[9px] text-slate-500 mt-0.5 leading-snug line-clamp-2">{badge.description}</p>
+                              </div>
+                              
+                              {badge.unlocked ? (
+                                <span className="absolute top-2 right-2 flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                                </span>
+                              ) : (
+                                <span className="absolute top-1 right-2 text-[9px] text-slate-600 font-extrabold uppercase">Locked</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Score History Grid/List with Filter Controls */}
+                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col gap-6">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                            <History className="w-4 h-4 text-indigo-400" />
+                            <span>Detailed Quiz Submissions History</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-500 mt-1">Review, filter, and drill down into all past quiz results</p>
+                        </div>
+                        
+                        {attempts.length > 0 && (
+                          <button
+                            onClick={() => {
+                              if (confirm("Are you sure you want to completely clear your local quiz history? This cannot be undone.")) {
+                                saveAttemptsToStorage([]);
+                                setSelectedAttemptId(null);
+                              }
+                            }}
+                            className="px-3 py-1.5 border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 text-red-400 text-[10px] font-black uppercase rounded-lg transition-all cursor-pointer"
+                          >
+                            Reset History
+                          </button>
+                        )}
+                      </div>
+
+                      {/* FILTER MODULE */}
+                      <div className="p-4 bg-[#0E0E11] border border-white/5 rounded-2xl flex flex-col gap-4 text-xs">
+                        <div className="flex items-center gap-1 text-slate-400 font-bold uppercase tracking-wider text-[9px]">
+                          <Filter className="w-3 h-3 text-indigo-400" />
+                          <span>Search & Filter Scoreboard</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Filter Subject</label>
+                            <select
+                              value={historyFilterSubject}
+                              onChange={(e) => setHistoryFilterSubject(e.target.value)}
+                              className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-300 text-xs focus:outline-none"
+                            >
+                              <option value="All">All Subjects</option>
+                              {uniqueSubjectsInHistory.map(sub => (
+                                <option key={sub} value={sub}>{sub}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Filter Quiz Title</label>
+                            <select
+                              value={historyFilterQuiz}
+                              onChange={(e) => setHistoryFilterQuiz(e.target.value)}
+                              className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-300 text-xs focus:outline-none"
+                            >
+                              <option value="All">All Quizzes</option>
+                              {uniqueQuizzesInHistory.map(qz => (
+                                <option key={qz.id} value={qz.id}>{qz.title}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Sort Scoreboard</label>
+                            <select
+                              value={historySortBy}
+                              onChange={(e: any) => setHistorySortBy(e.target.value)}
+                              className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-300 text-xs focus:outline-none"
+                            >
+                              <option value="date_newest">Date: Newest First</option>
+                              <option value="date_oldest">Date: Oldest First</option>
+                              <option value="score_highest">Score: Highest Percentage</option>
+                              <option value="score_lowest">Score: Lowest Percentage</option>
+                              <option value="time_spent">Time Spent: Fastest First</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {(historyFilterSubject !== 'All' || historyFilterQuiz !== 'All') && (
+                          <div className="flex justify-end pt-1">
+                            <button
+                              onClick={() => {
+                                setHistoryFilterSubject('All');
+                                setHistoryFilterQuiz('All');
+                              }}
+                              className="text-xs text-indigo-400 hover:text-indigo-300 font-bold"
+                            >
+                              Clear Filter Overrides
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ATTEMPTS CARDS LIST */}
+                      <div className="flex flex-col gap-3">
+                        {filteredAndSortedAttempts.length === 0 ? (
+                          <div className="text-center py-12 text-slate-500 border border-dashed border-white/10 rounded-2xl bg-[#0E0E11]/40">
+                            <History className="w-10 h-10 mx-auto text-slate-600 mb-2" />
+                            <p className="text-sm font-semibold">No quiz attempts match your filter</p>
+                            <p className="text-xs text-slate-600 mt-1">Try resetting the dropdown filters or solve a quiz from the library.</p>
+                          </div>
+                        ) : (
+                          filteredAndSortedAttempts.map((att, attidx) => {
+                            const details = getAttemptQuizDetails(att);
+                            const pct = att.totalQuestions > 0 ? Math.round((att.score / att.totalQuestions) * 100) : 0;
+                            const trend = getAttemptTrendComparison(att, attidx, attempts);
+                            
+                            return (
+                              <div
+                                key={att.id}
+                                className="p-4 bg-[#0E0E11] border border-white/5 hover:border-indigo-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all"
+                              >
+                                <div className="min-w-0 flex-grow flex flex-col gap-1.5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-black uppercase rounded-md border border-indigo-500/20">
+                                      {details.subject}
+                                    </span>
+                                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                                      <Calendar className="w-3.5 h-3.5" />
+                                      <span>{formatDateTime(att.completedAt)}</span>
+                                    </span>
+                                  </div>
+                                  <h5 className="text-sm font-extrabold text-white truncate max-w-lg">{details.title}</h5>
+                                  <div className="flex items-center gap-4 flex-wrap text-xs text-slate-400">
+                                    <span className="flex items-center gap-1">
+                                      <CheckSquare className="w-3.5 h-3.5 text-slate-500" />
+                                      <span>Correct: <strong className="text-slate-200">{att.score} / {att.totalQuestions}</strong></span>
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <Clock className="w-3.5 h-3.5 text-slate-500" />
+                                      <span>Time Spent: <strong className="text-slate-200">{formatDuration(att.startedAt, att.completedAt)}</strong></span>
+                                    </span>
+                                    
+                                    {/* Trend compare bubble */}
+                                    {trend.text !== 'First Attempt' && (
+                                      <span className={cn(
+                                        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase",
+                                        trend.isBetter === true
+                                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                          : trend.isBetter === false
+                                            ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                                            : "bg-white/5 text-slate-400 border border-white/5"
+                                      )}>
+                                        {trend.isBetter === true ? <TrendingUp className="w-3 h-3" /> : trend.isBetter === false ? <TrendingDown className="w-3 h-3" /> : null}
+                                        <span>{trend.text}</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center w-full sm:w-auto gap-4 pt-3 sm:pt-0 border-t sm:border-t-0 border-white/5 flex-shrink-0">
+                                  <div className="text-left sm:text-right">
+                                    <p className="text-xl font-black text-white">{pct}%</p>
+                                    <p className="text-[9px] text-slate-500 font-extrabold uppercase">Accuracy</p>
+                                  </div>
+                                  
+                                  <button
+                                    onClick={() => setSelectedAttemptId(att.id)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 hover:text-white text-slate-300 text-xs font-bold rounded-xl border border-white/10 transition-all cursor-pointer"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>Review Answers</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            )}
           </div>
         </div>
       </main>
@@ -2221,6 +3379,59 @@ export default function AIQuizGenerator() {
           </motion.div>
         </div>
       )}
+
+      {/* Global Gamification Celebration Toast */}
+      <AnimatePresence>
+        {celebrationBanner?.show && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8, y: 50 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 30 }}
+            className="fixed bottom-6 right-6 z-50 max-w-md w-full bg-[#111114] border-2 border-indigo-500/30 p-5 rounded-2xl shadow-2xl flex gap-4 items-start"
+          >
+            <div className={cn(
+              "p-3 rounded-xl border flex-shrink-0 flex items-center justify-center",
+              celebrationBanner.badgeIcon === 'perfection' && "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+              celebrationBanner.badgeIcon === 'gold' && "bg-amber-500/10 text-amber-400 border-amber-500/20",
+              celebrationBanner.badgeIcon === 'silver' && "bg-slate-300/10 text-slate-300 border-slate-300/20",
+              celebrationBanner.badgeIcon === 'speed' && "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+              celebrationBanner.badgeIcon === 'streak' && "bg-orange-500/10 text-orange-400 border-orange-500/20",
+              celebrationBanner.badgeIcon === 'bronze' && "bg-amber-700/10 text-amber-600 border-amber-700/20",
+              celebrationBanner.badgeIcon === 'milestone' && "bg-purple-500/10 text-purple-400 border-purple-500/20"
+            )}>
+              {celebrationBanner.badgeIcon === 'perfection' && <Star className="w-6 h-6 animate-bounce" />}
+              {celebrationBanner.badgeIcon === 'gold' && <Trophy className="w-6 h-6 animate-pulse" />}
+              {celebrationBanner.badgeIcon === 'silver' && <Award className="w-6 h-6" />}
+              {celebrationBanner.badgeIcon === 'speed' && <Zap className="w-6 h-6 animate-pulse" />}
+              {celebrationBanner.badgeIcon === 'streak' && <Flame className="w-6 h-6" />}
+              {celebrationBanner.badgeIcon === 'bronze' && <Award className="w-6 h-6" />}
+              {celebrationBanner.badgeIcon === 'milestone' && <Award className="w-6 h-6" />}
+            </div>
+            <div className="flex-grow min-w-0">
+              <h4 className="text-sm font-black text-white flex items-center gap-1.5">
+                <span>{celebrationBanner.title}</span>
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+              </h4>
+              <p className="text-xs text-slate-300 mt-1.5 leading-relaxed font-medium">{celebrationBanner.message}</p>
+              <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-white/5">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-extrabold">Achievement Unlocked</span>
+                <button
+                  onClick={() => setCelebrationBanner(prev => prev ? { ...prev, show: false } : null)}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 font-bold"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <button
+              onClick={() => setCelebrationBanner(prev => prev ? { ...prev, show: false } : null)}
+              className="p-1 hover:bg-white/5 rounded-lg text-slate-500 hover:text-white transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Delete Quiz Confirmation Dialog */}
       {quizToDelete && (
