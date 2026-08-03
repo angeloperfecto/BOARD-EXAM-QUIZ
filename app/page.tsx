@@ -1486,8 +1486,14 @@ export default function AIQuizGenerator() {
                               </div>
 
                               {q.explanation && (
-                                <div className="text-xs text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 p-2.5 rounded-xl font-medium leading-relaxed">
-                                  <strong className="text-indigo-200">Explanation:</strong> <MathRenderer text={q.explanation} />
+                                <div className="mt-4 text-sm md:text-base text-slate-100 bg-indigo-950/35 border border-indigo-500/30 p-5 rounded-2xl font-normal leading-relaxed shadow-sm">
+                                  <div className="flex items-center gap-2 text-indigo-300 font-extrabold mb-2 uppercase tracking-wider text-xs">
+                                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                                    <span>Explanation & Context</span>
+                                  </div>
+                                  <div className="text-slate-200 font-medium whitespace-pre-line">
+                                    <MathRenderer text={q.explanation} />
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -1849,13 +1855,13 @@ export default function AIQuizGenerator() {
                                      <motion.div
                                        initial={{ opacity: 0, y: 5 }}
                                        animate={{ opacity: 1, y: 0 }}
-                                       className="mt-4 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-slate-200 leading-relaxed"
+                                       className="mt-6 p-6 md:p-8 rounded-2xl bg-indigo-950/35 border-2 border-indigo-500/25 text-sm md:text-base text-slate-100 leading-relaxed shadow-lg"
                                      >
-                                       <div className="flex items-center gap-2 text-indigo-300 font-bold mb-1 uppercase tracking-wide">
+                                       <div className="flex items-center gap-2.5 text-indigo-300 font-extrabold mb-3 uppercase tracking-wider text-xs md:text-sm">
                                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
                                          <span>Explanation & Context</span>
                                        </div>
-                                       <div className="mt-1 text-[11px] leading-relaxed text-slate-300"><MathRenderer text={q.explanation} /></div>
+                                       <div className="mt-2 text-xs md:text-sm lg:text-base leading-relaxed text-slate-200 font-medium whitespace-pre-line"><MathRenderer text={q.explanation} /></div>
                                      </motion.div>
                                    );
                                  }
