@@ -384,14 +384,14 @@ export default function AIQuizGenerator() {
   };
 
   // Get details for any attempt
-  const getAttemptQuizDetails = (attempt: QuizAttempt) => {
+  const getAttemptQuizDetails = React.useCallback((attempt: QuizAttempt) => {
     const qz = quizzes.find(q => q.id === attempt.quizId);
     return {
       title: qz ? qz.title : (attempt.quizId.startsWith('sample') ? 'PRC Board Exam Reviewer (Civil Engineering & NSCP)' : 'Archived Quiz'),
       subject: qz?.subject || (attempt.quizId.startsWith('sample') ? 'Civil & Structural Engineering' : 'General Study'),
       category: qz?.category || 'Extracted Exam'
     };
-  };
+  }, [quizzes]);
 
   // Helper to format duration
   const formatDuration = (startedAt: string, completedAt?: string | null) => {
@@ -542,7 +542,7 @@ export default function AIQuizGenerator() {
       }
     ];
     return badges;
-  }, [attempts, studyStreak, quizzes]);
+  }, [attempts, studyStreak, getAttemptQuizDetails]);
 
   // Comparative score trend comparison
   const getAttemptTrendComparison = (attempt: QuizAttempt, index: number, allAttempts: QuizAttempt[]) => {
@@ -607,7 +607,7 @@ export default function AIQuizGenerator() {
     });
 
     return result;
-  }, [attempts, historyFilterSubject, historyFilterQuiz, historySortBy, quizzes]);
+  }, [attempts, historyFilterSubject, historyFilterQuiz, historySortBy, getAttemptQuizDetails]);
 
   // Unique subjects and quizzes for dropdown selects
   const uniqueSubjectsInHistory = useMemo(() => {
@@ -617,7 +617,7 @@ export default function AIQuizGenerator() {
       if (details.subject) subjectsSet.add(details.subject);
     });
     return Array.from(subjectsSet);
-  }, [attempts, quizzes]);
+  }, [attempts, getAttemptQuizDetails]);
 
   const uniqueQuizzesInHistory = useMemo(() => {
     const quizMap = new Map<string, string>();
@@ -626,7 +626,7 @@ export default function AIQuizGenerator() {
       quizMap.set(a.quizId, details.title);
     });
     return Array.from(quizMap.entries()).map(([id, title]) => ({ id, title }));
-  }, [attempts, quizzes]);
+  }, [attempts, getAttemptQuizDetails]);
 
   // Chart plotting dataset
   const chartData = useMemo(() => {
@@ -644,7 +644,7 @@ export default function AIQuizGenerator() {
           incorrect: a.totalQuestions - a.score,
         };
       });
-  }, [attempts, quizzes]);
+  }, [attempts, getAttemptQuizDetails]);
 
   // Check PDF.js capability on mount
   useEffect(() => {
@@ -1322,14 +1322,17 @@ export default function AIQuizGenerator() {
   return (
     <div id="app-root" className="min-h-screen bg-[#0A0A0B] text-slate-300 flex flex-col font-sans selection:bg-indigo-900/40 antialiased">
       {/* Visual Identity Header */}
-      <header id="app-header" className="bg-[#111114] border-b border-white/10 sticky top-0 z-40 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
+      <header id="app-header" className="bg-[#0D0D10]/80 backdrop-blur-md border-b border-white/5 sticky top-0 z-40 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-600 rounded-lg text-white">
-              <Sparkles className="w-5 h-5" />
+              <Sparkles className="w-5 h-5 animate-pulse" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight text-white">AI Quiz Generator <span className="text-indigo-400 italic font-medium text-sm ml-1">AI</span></h1>
+              <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                <span>AI Quiz Generator</span>
+                <span className="px-1.5 py-0.5 bg-indigo-500/15 text-indigo-400 text-[10px] font-black tracking-widest uppercase rounded border border-indigo-500/20">PRO</span>
+              </h1>
               <p className="text-xs text-slate-400">Document Scan & Interactive Review Platform</p>
             </div>
           </div>
@@ -1383,6 +1386,82 @@ export default function AIQuizGenerator() {
           ) : null}
         </AnimatePresence>
 
+        {/* Dynamic Professional Stats Header Strip */}
+        {activeMode === 'list' && !selectedQuiz && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+          >
+            {/* Metric 1: Streak */}
+            <div className="bg-[#111114] border border-white/5 rounded-2xl p-5 shadow-lg flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Study Streak</span>
+                <span className="text-2xl font-black text-white mt-1 block flex items-center gap-1.5">
+                  <span>{studyStreak}</span>
+                  <span className="text-xs text-slate-400 font-medium">Days</span>
+                </span>
+                <span className="text-[10px] text-slate-400 mt-1 block font-medium">
+                  {studyStreak >= 2 ? 'Streak active! Keep going.' : 'Take exams to build a streak'}
+                </span>
+              </div>
+              <div className="p-3.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-xl">
+                <Flame className={cn("w-5 h-5", studyStreak > 0 && "animate-bounce")} />
+              </div>
+            </div>
+
+            {/* Metric 2: Accuracy */}
+            <div className="bg-[#111114] border border-white/5 rounded-2xl p-5 shadow-lg flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Average Score</span>
+                <span className="text-2xl font-black text-white mt-1 block flex items-center gap-1.5">
+                  <span>{analyticsSummary.averagePercent}%</span>
+                </span>
+                <span className="text-[10px] text-slate-400 mt-1 block font-medium">
+                  Across {attempts.filter(a => a.status === 'completed').length} completed runs
+                </span>
+              </div>
+              <div className="p-3.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl">
+                <Trophy className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* Metric 3: Active Library */}
+            <div className="bg-[#111114] border border-white/5 rounded-2xl p-5 shadow-lg flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Dynamic Reviewers</span>
+                <span className="text-2xl font-black text-white mt-1 block flex items-center gap-1.5">
+                  <span>{quizzes.length}</span>
+                  <span className="text-xs text-slate-400 font-medium">Active</span>
+                </span>
+                <span className="text-[10px] text-slate-400 mt-1 block font-medium">
+                  {quizzes.reduce((acc, q) => acc + q.questions.length, 0)} total exam questions
+                </span>
+              </div>
+              <div className="p-3.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl">
+                <BookOpen className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* Metric 4: Documents Ingested */}
+            <div className="bg-[#111114] border border-white/5 rounded-2xl p-5 shadow-lg flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Ingested Sources</span>
+                <span className="text-2xl font-black text-white mt-1 block flex items-center gap-1.5">
+                  <span>{uploadedFiles.length}</span>
+                  <span className="text-xs text-slate-400 font-medium">Files</span>
+                </span>
+                <span className="text-[10px] text-slate-400 mt-1 block font-medium">
+                  AI-driven OCR & processing
+                </span>
+              </div>
+              <div className="p-3.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl">
+                <FileText className="w-5 h-5" />
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Dashboard Workstation Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
@@ -1401,13 +1480,13 @@ export default function AIQuizGenerator() {
                     setSelectedAttemptId(null);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left cursor-pointer",
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left cursor-pointer border",
                     activeMode === 'list' && !selectedQuiz
-                      ? "bg-white/5 text-white border-l-4 border-indigo-500 font-bold"
-                      : "text-slate-400 hover:bg-white/5"
+                      ? "bg-indigo-600/10 text-white border-indigo-500/30 font-bold shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
+                      : "text-slate-400 border-transparent hover:bg-white/5 hover:text-slate-200"
                   )}
                 >
-                  <FolderOpen className="w-4 h-4 text-slate-500" />
+                  <FolderOpen className="w-4 h-4 text-indigo-400" />
                   <span className="flex-grow">Quiz Library</span>
                   <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-xs font-bold rounded-full border border-indigo-500/20">{quizzes.length}</span>
                 </button>
@@ -1419,13 +1498,13 @@ export default function AIQuizGenerator() {
                     setSelectedAttemptId(null);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all text-left cursor-pointer",
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left cursor-pointer border",
                     activeMode === 'history'
-                      ? "bg-white/5 text-white border-l-4 border-indigo-500 font-bold"
-                      : "text-slate-400 hover:bg-white/5"
+                      ? "bg-indigo-600/10 text-white border-indigo-500/30 font-bold shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
+                      : "text-slate-400 border-transparent hover:bg-white/5 hover:text-slate-200"
                   )}
                 >
-                  <History className="w-4 h-4 text-slate-500" />
+                  <History className="w-4 h-4 text-indigo-400" />
                   <span className="flex-grow">Score History & Analytics</span>
                   {attempts.length > 0 && (
                     <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-xs font-bold rounded-full border border-indigo-500/20">
@@ -1749,44 +1828,61 @@ export default function AIQuizGenerator() {
 
                           {/* Dynamic Quiz Attempts and Score Panel */}
                           {quizAttempts.length > 0 ? (
-                            <div className="flex items-center gap-4 flex-wrap bg-white/5 border border-white/5 rounded-xl p-3">
-                              <div className="flex items-center gap-2">
-                                <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                                <div>
-                                  <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Best Score</span>
-                                  <span className="text-xs font-black text-white mt-0.5 block">
-                                    {highestScoreAttempt ? `${highestScoreAttempt.score}/${highestScoreAttempt.totalQuestions}` : '0/0'} 
-                                    <span className="text-amber-400 text-[10px] font-bold ml-1">
-                                      ({highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}%)
+                            <div className="flex flex-col gap-3.5 bg-white/5 border border-white/5 rounded-xl p-4">
+                              <div className="flex items-center gap-4 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                  <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                  <div>
+                                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Best Score</span>
+                                    <span className="text-xs font-black text-white mt-0.5 block">
+                                      {highestScoreAttempt ? `${highestScoreAttempt.score}/${highestScoreAttempt.totalQuestions}` : '0/0'} 
+                                      <span className="text-amber-400 text-[10px] font-bold ml-1">
+                                        ({highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}%)
+                                      </span>
                                     </span>
-                                  </span>
+                                  </div>
                                 </div>
-                              </div>
-                              
-                              <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
+                                
+                                <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
 
-                              <div className="flex items-center gap-2">
-                                <Clock className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                                <div>
-                                  <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Latest Score</span>
-                                  <span className="text-xs font-black text-white mt-0.5 block">
-                                    {latestAttempt ? `${latestAttempt.score}/${latestAttempt.totalQuestions}` : '0/0'}
-                                    <span className="text-indigo-400 text-[10px] font-bold ml-1">
-                                      ({latestAttempt ? Math.round((latestAttempt.score / latestAttempt.totalQuestions) * 100) : 0}%)
+                                <div className="flex items-center gap-2">
+                                  <Clock className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                                  <div>
+                                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Latest Score</span>
+                                    <span className="text-xs font-black text-white mt-0.5 block">
+                                      {latestAttempt ? `${latestAttempt.score}/${latestAttempt.totalQuestions}` : '0/0'}
+                                      <span className="text-indigo-400 text-[10px] font-bold ml-1">
+                                        ({latestAttempt ? Math.round((latestAttempt.score / latestAttempt.totalQuestions) * 100) : 0}%)
+                                      </span>
                                     </span>
-                                  </span>
+                                  </div>
+                                </div>
+
+                                <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
+
+                                <div className="flex items-center gap-2">
+                                  <Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                                  <div>
+                                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Attempts</span>
+                                    <span className="text-xs font-black text-white mt-0.5 block">{quizAttempts.length} Completed</span>
+                                  </div>
                                 </div>
                               </div>
 
-                              <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
-
-                              <div className="flex items-center gap-2">
-                                <Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                                <div>
-                                  <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Attempts</span>
-                                  <span className="text-xs font-black text-white mt-0.5 block">{quizAttempts.length} Completed</span>
+                              {highestScoreAttempt && (
+                                <div className="space-y-1.5 border-t border-white/5 pt-3">
+                                  <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                    <span>Review Mastery Progress</span>
+                                    <span className="text-amber-400 font-extrabold">{highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}% Peak Accuracy</span>
+                                  </div>
+                                  <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                                    <div 
+                                      className="bg-amber-400 h-1.5 rounded-full transition-all duration-500" 
+                                      style={{ width: `${highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}%` }}
+                                    />
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                             </div>
                           ) : (
                             <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-white/[0.02] border border-white/5 p-2 rounded-xl">
