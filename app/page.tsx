@@ -231,9 +231,7 @@ export default function AIQuizGenerator() {
     if (!correctAns) return false;
 
     if (q.type === QuestionType.MCQ) {
-      const cleanUser = String(userAns || '').trim().toUpperCase();
-      const cleanCorrect = String(correctAns).trim().toUpperCase();
-      return cleanUser === cleanCorrect || cleanUser.startsWith(cleanCorrect) || cleanCorrect.startsWith(cleanUser);
+      return isChoiceCorrect(q, String(userAns || ''));
     } else if (q.type === QuestionType.TRUE_FALSE) {
       return String(userAns).toLowerCase() === String(correctAns).toLowerCase();
     } else if (q.type === QuestionType.IDENTIFICATION || q.type === QuestionType.FILL_IN_BLANK) {
@@ -293,26 +291,6 @@ export default function AIQuizGenerator() {
     // 4. Fallback for single letter correct answers matching choice letter
     if (choiceLetter && cleanCorrect === choiceLetter.toLowerCase()) {
       return true;
-    }
-
-    // 5. Match by content against original choices (for randomized choices)
-    if (q.choices && q.choices.length > 0) {
-      const originalCorrectChoice = q.choices.find(c => {
-        const cClean = c.trim().toLowerCase();
-        if (cClean === cleanCorrect) return true;
-        const cLetter = getChoiceLetter(c);
-        if (cLetter && correctLetter && cLetter === correctLetter) return true;
-        if (cLetter && cleanCorrect === cLetter.toLowerCase()) return true;
-        const cStripped = stripChoicePrefix(c).toLowerCase();
-        if (cStripped && strippedCorrect && cStripped === strippedCorrect) return true;
-        return false;
-      });
-
-      if (originalCorrectChoice) {
-        if (strippedChoice === stripChoicePrefix(originalCorrectChoice).toLowerCase()) {
-          return true;
-        }
-      }
     }
 
     return false;
@@ -1054,19 +1032,30 @@ export default function AIQuizGenerator() {
     if (config.randomizeChoices) {
       currentQuestions = currentQuestions.map(q => {
         if (q.type === QuestionType.MCQ && q.choices) {
+          // Identify which original choice string matches the correct answer
+          let originalCorrectChoice = q.choices.find(c => isChoiceCorrect(q, c));
+          
           // Shuffle options, keeping content
           let shuffledChoices = shuffleArray([...q.choices]);
           
+          let newCorrectAnswer = q.correctAnswer;
+
           // Generate new letter prefixes for display logic stability
           shuffledChoices = shuffledChoices.map((choice, i) => {
             const letter = String.fromCharCode(65 + i);
             const stripped = stripChoicePrefix(choice);
-            return `${letter}. ${stripped}`;
+            const newChoice = `${letter}. ${stripped}`;
+            
+            if (originalCorrectChoice === choice) {
+              newCorrectAnswer = newChoice;
+            }
+            return newChoice;
           });
 
           return {
             ...q,
-            choices: shuffledChoices
+            choices: shuffledChoices,
+            correctAnswer: newCorrectAnswer
           };
         }
         return q;
@@ -1095,7 +1084,7 @@ export default function AIQuizGenerator() {
       // If already checked, lock inputs so they can't change their answer
       if (checkedQuestions[questionId]) return;
 
-      const q = selectedQuiz?.questions.find(quest => quest.id === questionId);
+      const q = activeQuestions.find(quest => quest.id === questionId);
       if (q && (q.type === QuestionType.MCQ || q.type === QuestionType.TRUE_FALSE)) {
         setUserAnswers(prev => ({
           ...prev,
@@ -1133,33 +1122,8 @@ export default function AIQuizGenerator() {
     let score = 0;
     activeQuestions.forEach(q => {
       const userAns = userAnswers[q.id];
-      const correctAns = q.correctAnswer;
-
-      if (!correctAns) return;
-
-      if (q.type === QuestionType.MCQ) {
-        if (isChoiceCorrect(q, String(userAns || ''))) {
-          score++;
-        }
-      } else if (q.type === QuestionType.TRUE_FALSE) {
-        if (String(userAns).toLowerCase() === String(correctAns).toLowerCase()) {
-          score++;
-        }
-      } else if (q.type === QuestionType.IDENTIFICATION || q.type === QuestionType.FILL_IN_BLANK) {
-        if (String(userAns || '').trim().toLowerCase() === String(correctAns).trim().toLowerCase()) {
-          score++;
-        }
-      } else if (q.type === QuestionType.MATCHING) {
-        // All matching pairs must match exactly
-        const pairs = q.matchingPairs || [];
-        const userPairs = userAns as Record<string, string> || {};
-        let allCorrect = true;
-        pairs.forEach(p => {
-          if (userPairs[p.left] !== p.right) {
-            allCorrect = false;
-          }
-        });
-        if (allCorrect && pairs.length > 0) score++;
+      if (checkSingleAnswerCorrectness(q, userAns)) {
+        score++;
       }
     });
 
@@ -2291,10 +2255,7 @@ export default function AIQuizGenerator() {
                         <h4 className="text-sm font-bold text-slate-300">Answers Review Key</h4>
                         {activeQuestions.map((q, idx) => {
                           const userAns = userAnswers[q.id];
-                          const isCorrect = q.type === QuestionType.MCQ
-                            ? String(userAns || '').trim().toUpperCase() === String(q.correctAnswer).trim().toUpperCase() ||
-                              String(userAns || '').startsWith(String(q.correctAnswer))
-                            : String(userAns || '').toLowerCase().trim() === String(q.correctAnswer).toLowerCase().trim();
+                          const isCorrect = checkSingleAnswerCorrectness(q, userAns);
 
                           return (
                             <div key={q.id} className="p-4 border border-white/5 rounded-2xl flex flex-col gap-2.5 bg-[#0E0E11]">
@@ -2987,7 +2948,7 @@ export default function AIQuizGenerator() {
                     if (!attempt) return null;
                     const qz = quizzes.find(q => q.id === attempt.quizId);
                     const qzDetails = getAttemptQuizDetails(attempt); // fallback if missing
-                    const qzQuestions = qz?.questions || [];
+                    const qzQuestions = attempt.activeQuestions || qz?.questions || [];
                     const pct = qzQuestions.length > 0 ? Math.round((attempt.score / qzQuestions.length) * 100) : 0;
                     
                     return (
