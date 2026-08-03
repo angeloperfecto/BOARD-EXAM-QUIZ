@@ -177,6 +177,8 @@ export default function AIQuizGenerator() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [activeMode, setActiveMode] = useState<'list' | 'take' | 'edit' | 'extract' | 'history'>('list');
+  const [logsExpanded, setLogsExpanded] = useState<boolean>(false);
+  const [docsExpanded, setDocsExpanded] = useState<boolean>(false);
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number>(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, any>>({});
   const [quizAttempt, setQuizAttempt] = useState<QuizAttempt | null>(null);
@@ -312,6 +314,7 @@ export default function AIQuizGenerator() {
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterSubject, setFilterSubject] = useState<string>('All');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'questions_desc' | 'questions_asc' | 'title_asc'>('newest');
 
   // Question editing state
   const [editingQuestion, setEditingQuestion] = useState<Partial<Question> | null>(null);
@@ -655,14 +658,35 @@ export default function AIQuizGenerator() {
     });
   }, []);
 
-  // Filtered Quiz list
-  const filteredQuizzes = quizzes.filter(q => {
-    const matchesSearch = q.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          (q.description && q.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                          (q.subject && q.subject.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesSubject = filterSubject === 'All' || q.subject === filterSubject;
-    return matchesSearch && matchesSubject;
-  });
+  // Filtered Quiz list with sorting
+  const filteredQuizzes = useMemo(() => {
+    const list = quizzes.filter(q => {
+      const matchesSearch = q.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            (q.description && q.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                            (q.subject && q.subject.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesSubject = filterSubject === 'All' || q.subject === filterSubject;
+      return matchesSearch && matchesSubject;
+    });
+
+    return [...list].sort((a, b) => {
+      if (sortBy === 'newest') {
+        return b.id.localeCompare(a.id);
+      }
+      if (sortBy === 'oldest') {
+        return a.id.localeCompare(b.id);
+      }
+      if (sortBy === 'questions_desc') {
+        return b.questions.length - a.questions.length;
+      }
+      if (sortBy === 'questions_asc') {
+        return a.questions.length - b.questions.length;
+      }
+      if (sortBy === 'title_asc') {
+        return a.title.localeCompare(b.title);
+      }
+      return 0;
+    });
+  }, [quizzes, searchQuery, filterSubject, sortBy]);
 
   // Extract unique subjects for filtering
   const allSubjects = Array.from(new Set(quizzes.map(q => q.subject).filter(Boolean))) as string[];
@@ -1462,17 +1486,67 @@ export default function AIQuizGenerator() {
           </motion.div>
         )}
 
+        {/* Responsive Segmented Navigation Bar for Mobile */}
+        <div id="mobile-nav-tabs" className="lg:hidden w-full bg-[#111115] border border-white/[0.06] p-1.5 rounded-2xl flex items-center gap-1 shadow-2xl mb-2">
+          <button
+            onClick={() => {
+              setActiveMode('list');
+              setSelectedQuiz(null);
+              setSelectedAttemptId(null);
+            }}
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-bold tracking-wide transition-all",
+              activeMode === 'list' && !selectedQuiz
+                ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(99,102,241,0.2)]"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            )}
+          >
+            <FolderOpen className="w-4 h-4" />
+            <span>Library ({quizzes.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveMode('extract')}
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-bold tracking-wide transition-all",
+              activeMode === 'extract'
+                ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(99,102,241,0.2)]"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            )}
+          >
+            <Upload className="w-4 h-4" />
+            <span>Upload Src</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveMode('history');
+              setSelectedQuiz(null);
+              setSelectedAttemptId(null);
+            }}
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-bold tracking-wide transition-all",
+              activeMode === 'history'
+                ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(99,102,241,0.2)]"
+                : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+            )}
+          >
+            <History className="w-4 h-4" />
+            <span>Scores ({attempts.length})</span>
+          </button>
+        </div>
+
         {/* Dashboard Workstation Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
           
-          {/* Navigation Sidebar & Upload Workspace (4 cols) */}
-          <div className="lg:col-span-4 flex flex-col gap-6">
+          {/* Navigation Sidebar & Upload Workspace (4 cols) - Pushed to bottom on mobile, side-sticky on desktop */}
+          <div className="lg:col-span-4 flex flex-col gap-6 order-last lg:order-first">
             
-            {/* Quick Stats Panel / Action Cards */}
-            <div className="bg-[#0E0E11] border border-white/10 rounded-2xl p-5 shadow-lg">
-              <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold mb-4">Operations Center</h3>
+            {/* Quick Stats Panel / Action Cards (Visible only on desktop as mobile has top tabs) */}
+            <div className="hidden lg:block bg-[#111115] border border-white/[0.06] rounded-2xl p-5 shadow-xl">
+              <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-extrabold mb-4">Operations Center</h3>
               
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2">
                 <button
                   onClick={() => {
                     setActiveMode('list');
@@ -1480,15 +1554,15 @@ export default function AIQuizGenerator() {
                     setSelectedAttemptId(null);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left cursor-pointer border",
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border",
                     activeMode === 'list' && !selectedQuiz
-                      ? "bg-indigo-600/10 text-white border-indigo-500/30 font-bold shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
-                      : "text-slate-400 border-transparent hover:bg-white/5 hover:text-slate-200"
+                      ? "bg-indigo-600/10 text-white border-indigo-500/30 shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
+                      : "text-slate-400 border-transparent hover:bg-white/[0.03] hover:text-slate-200"
                   )}
                 >
-                  <FolderOpen className="w-4 h-4 text-indigo-400" />
+                  <FolderOpen className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                   <span className="flex-grow">Quiz Library</span>
-                  <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-xs font-bold rounded-full border border-indigo-500/20">{quizzes.length}</span>
+                  <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-extrabold rounded-full border border-indigo-500/20">{quizzes.length}</span>
                 </button>
 
                 <button
@@ -1498,16 +1572,16 @@ export default function AIQuizGenerator() {
                     setSelectedAttemptId(null);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all text-left cursor-pointer border",
+                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border",
                     activeMode === 'history'
-                      ? "bg-indigo-600/10 text-white border-indigo-500/30 font-bold shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
-                      : "text-slate-400 border-transparent hover:bg-white/5 hover:text-slate-200"
+                      ? "bg-indigo-600/10 text-white border-indigo-500/30 shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
+                      : "text-slate-400 border-transparent hover:bg-white/[0.03] hover:text-slate-200"
                   )}
                 >
-                  <History className="w-4 h-4 text-indigo-400" />
+                  <History className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                   <span className="flex-grow">Score History & Analytics</span>
                   {attempts.length > 0 && (
-                    <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-xs font-bold rounded-full border border-indigo-500/20">
+                    <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-extrabold rounded-full border border-indigo-500/20">
                       {attempts.length}
                     </span>
                   )}
@@ -1515,76 +1589,143 @@ export default function AIQuizGenerator() {
 
                 <button
                   onClick={mergeQuizzes}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-indigo-400 hover:bg-white/5 transition-all text-left cursor-pointer"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-indigo-400 hover:bg-indigo-500/10 hover:text-white transition-all text-left cursor-pointer border border-transparent hover:border-indigo-500/20"
                 >
-                  <Layers className="w-4 h-4 text-indigo-400" />
+                  <Layers className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                   <span>Merge All Quizzes</span>
                 </button>
               </div>
             </div>
 
-            {/* Document Library (If extracted previously) */}
-            <div className="bg-[#0E0E11] border border-white/10 rounded-2xl p-5 shadow-lg">
-              <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold mb-4">Ingested Documents</h3>
+            {/* Document Library - Collapsible with beautiful header trigger */}
+            <div className="bg-[#111115] border border-white/[0.06] rounded-2xl shadow-xl overflow-hidden transition-all">
+              <button
+                onClick={() => setDocsExpanded(!docsExpanded)}
+                className="w-full p-5 flex items-center justify-between text-left hover:bg-white/[0.02] transition-colors cursor-pointer"
+              >
+                <div>
+                  <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-extrabold flex items-center gap-2">
+                    <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Ingested Documents</span>
+                  </h3>
+                  {uploadedFiles.length > 0 && (
+                    <p className="text-[10px] text-indigo-400 font-semibold mt-1">
+                      {uploadedFiles.length} active files loaded
+                    </p>
+                  )}
+                </div>
+                <div className="p-1 rounded-lg bg-white/5 border border-white/5 text-slate-400">
+                  <motion.div animate={{ rotate: docsExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                    <ChevronRight className="w-4 h-4" />
+                  </motion.div>
+                </div>
+              </button>
               
-              {uploadedFiles.length === 0 ? (
-                <div className="text-center py-6 text-slate-500 text-xs border border-dashed border-white/10 rounded-xl bg-white/5">
-                  <FileText className="w-8 h-8 mx-auto text-slate-600 mb-2" />
-                  <p>No active source files loaded yet.</p>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 max-h-60 overflow-y-auto pr-1">
-                  {uploadedFiles.map(file => (
-                    <div key={file.id} className="p-3 border border-white/5 rounded-xl flex items-center gap-3 bg-white/5 hover:bg-white/10 hover:border-white/10 transition-all">
-                      <FileCode className="w-5 h-5 text-indigo-400 flex-shrink-0" />
-                      <div className="flex-grow min-w-0">
-                        <p className="text-xs font-semibold text-slate-200 truncate">{file.name}</p>
-                        <p className="text-[10px] text-slate-500">{(file.size / 1024).toFixed(1)} KB • {file.pageCount} page(s)</p>
-                      </div>
-                      <CheckCircle className="w-4 h-4 text-emerald-400" />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Live Parsing Log Tracker */}
-            {extractionLogs.length > 0 && (
-              <div className="bg-[#0E0E11] border border-white/10 rounded-2xl p-5 shadow-lg">
-                <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-bold mb-4">Extraction Logs</h3>
-                <div className="flex flex-col gap-3 max-h-48 overflow-y-auto">
-                  {extractionLogs.map(log => (
-                    <div key={log.id} className="p-3 border border-white/5 rounded-xl bg-white/5 text-xs flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-200 truncate max-w-[150px]">{log.fileName}</span>
-                        <span className={cn(
-                          "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border",
-                          log.status === 'success' && "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-                          log.status === 'processing' && "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse",
-                          log.status === 'failed' && "bg-red-500/10 text-red-400 border-red-500/20",
-                          log.status === 'pending' && "bg-white/5 text-slate-400 border-white/5"
-                        )}>
-                          {log.status}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 flex items-center justify-between">
-                        <span>Pages processed: {log.processedPages || 0} / {log.totalPages || 'N/A'}</span>
-                        {log.questionsFound > 0 && (
-                          <span className="text-indigo-400 font-bold">{log.questionsFound} Qs extracted</span>
-                        )}
-                      </div>
-                      {log.error && (
-                        <p className="text-[10px] text-red-400 border-t border-white/5 mt-1 pt-1 truncate">{log.error}</p>
+              <AnimatePresence initial={false}>
+                {docsExpanded && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="border-t border-white/[0.04]"
+                  >
+                    <div className="p-5 flex flex-col gap-3">
+                      {uploadedFiles.length === 0 ? (
+                        <div className="text-center py-6 text-slate-500 text-xs border border-dashed border-white/[0.06] rounded-xl bg-white/[0.01]">
+                          <FileText className="w-8 h-8 mx-auto text-slate-600 mb-2" />
+                          <p>No active source files loaded yet.</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-2.5 max-h-60 overflow-y-auto pr-1">
+                          {uploadedFiles.map(file => (
+                            <div key={file.id} className="p-3 border border-white/5 rounded-xl flex items-center gap-3 bg-white/[0.02] hover:bg-white/[0.05] hover:border-white/10 transition-all">
+                              <FileCode className="w-5 h-5 text-indigo-400 flex-shrink-0" />
+                              <div className="flex-grow min-w-0">
+                                <p className="text-xs font-semibold text-slate-200 truncate">{file.name}</p>
+                                <p className="text-[10px] text-slate-500">{(file.size / 1024).toFixed(1)} KB • {file.pageCount} page(s)</p>
+                              </div>
+                              <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </div>
-                  ))}
-                </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Live Parsing Log Tracker - Collapsible */}
+            {extractionLogs.length > 0 && (
+              <div className="bg-[#111115] border border-white/[0.06] rounded-2xl shadow-xl overflow-hidden transition-all">
+                <button
+                  onClick={() => setLogsExpanded(!logsExpanded)}
+                  className="w-full p-5 flex items-center justify-between text-left hover:bg-white/[0.02] transition-colors cursor-pointer"
+                >
+                  <div>
+                    <h3 className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-extrabold flex items-center gap-2">
+                      <Activity className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Extraction Logs</span>
+                    </h3>
+                    <p className="text-[10px] text-emerald-400 font-semibold mt-1">
+                      {extractionLogs.filter(l => l.status === 'success').length} processed successfully
+                    </p>
+                  </div>
+                  <div className="p-1 rounded-lg bg-white/5 border border-white/5 text-slate-400">
+                    <motion.div animate={{ rotate: logsExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                      <ChevronRight className="w-4 h-4" />
+                    </motion.div>
+                  </div>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {logsExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25 }}
+                      className="border-t border-white/[0.04]"
+                    >
+                      <div className="p-5 flex flex-col gap-3">
+                        <div className="flex flex-col gap-2.5 max-h-48 overflow-y-auto pr-1">
+                          {extractionLogs.map(log => (
+                            <div key={log.id} className="p-3 border border-white/5 rounded-xl bg-white/[0.02] text-xs flex flex-col gap-1.5 hover:border-white/10 transition-all">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold text-slate-200 truncate max-w-[150px]">{log.fileName}</span>
+                                <span className={cn(
+                                  "px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border flex-shrink-0",
+                                  log.status === 'success' && "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+                                  log.status === 'processing' && "bg-indigo-500/10 text-indigo-400 border-indigo-500/20 animate-pulse",
+                                  log.status === 'failed' && "bg-red-500/10 text-red-400 border-red-500/20",
+                                  log.status === 'pending' && "bg-white/5 text-slate-400 border-white/5"
+                                )}>
+                                  {log.status}
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                                <span>Pages processed: {log.processedPages || 0} / {log.totalPages || 'N/A'}</span>
+                                {log.questionsFound > 0 && (
+                                  <span className="text-indigo-400 font-bold">{log.questionsFound} Qs extracted</span>
+                                )}
+                              </div>
+                              {log.error && (
+                                <p className="text-[10px] text-red-400 border-t border-white/5 mt-1 pt-1 truncate">{log.error}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             )}
           </div>
 
-          {/* Core Interactive Board / Playground (8 cols) */}
-          <div className="lg:col-span-8">
+          {/* Core Interactive Board / Playground (8 cols) - Appears first on mobile */}
+          <div className="lg:col-span-8 order-first lg:order-last">
             
             {/* MODE 1: UPLOAD & GENERATOR SETTINGS */}
             {activeMode === 'extract' && (
@@ -1731,30 +1872,86 @@ export default function AIQuizGenerator() {
             {activeMode === 'list' && (
               <div className="flex flex-col gap-6">
                 
-                {/* Search / Filter Section */}
-                <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 shadow-lg flex flex-col sm:flex-row items-center gap-4 justify-between">
-                  <div className="w-full sm:w-auto flex-grow max-w-md">
+                {/* Hero Greeting and Quick Action Banner */}
+                <div className="relative overflow-hidden bg-gradient-to-r from-slate-900/60 via-[#111115] to-[#111115] border border-white/[0.06] rounded-2xl p-6 sm:p-7 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-xl">
+                  {/* Subtle background glow */}
+                  <div className="absolute top-0 right-0 -mr-16 -mt-16 w-56 h-56 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+                  <div className="absolute bottom-0 left-0 -ml-12 -mb-12 w-48 h-48 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+
+                  <div className="relative z-10 space-y-2">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-indigo-500/10 text-indigo-400 text-[10px] font-black tracking-widest uppercase rounded-full border border-indigo-500/20 shadow-sm">
+                      <Sparkles className="w-3 h-3 animate-pulse" />
+                      <span>Next-Gen Study Engine</span>
+                    </span>
+                    <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                      Dynamic Quiz Library
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-400 max-w-xl">
+                      Upload board exam reviewers, textbook chapters, or reference papers. AI will instantly model an interactive simulator customized to your goals.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => setActiveMode('extract')}
+                    className="relative z-10 flex-shrink-0 flex items-center gap-2 px-4.5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all hover:scale-[1.02] shadow-[0_8px_30px_rgb(99,102,241,0.25)] active:scale-[0.98] w-full md:w-auto justify-center cursor-pointer min-h-[44px]"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Upload & Generate Exam</span>
+                  </button>
+                </div>
+
+                {/* Search / Filter / Sort Bar */}
+                <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col xl:flex-row items-stretch xl:items-center gap-4 justify-between">
+                  {/* Search box with Icon prefix */}
+                  <div className="relative flex-grow max-w-xl">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      <Search className="w-4 h-4" />
+                    </div>
                     <input
                       type="text"
                       placeholder="Search quizzes, subjects..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full p-2.5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#0E0E11] text-slate-100 text-sm placeholder-slate-500"
+                      className="w-full pl-10 pr-4 py-3 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#0E0E11] text-slate-100 text-xs placeholder-slate-500 transition-all min-h-[44px]"
                     />
                   </div>
 
-                  <div className="w-full sm:w-auto flex items-center gap-2 justify-end">
-                    <span className="text-xs font-bold text-slate-500 uppercase">Subject:</span>
-                    <select
-                      value={filterSubject}
-                      onChange={(e) => setFilterSubject(e.target.value)}
-                      className="p-2 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#111114] text-xs font-semibold text-slate-200"
-                    >
-                      <option value="All" className="bg-[#111114]">All Subjects</option>
-                      {allSubjects.map(sub => (
-                        <option key={sub} value={sub} className="bg-[#111114]">{sub}</option>
-                      ))}
-                    </select>
+                  {/* Filter and Sort selectors */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 justify-end flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 min-h-[44px]">
+                      <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 flex-shrink-0">
+                        <Filter className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Subject:</span>
+                      </span>
+                      <select
+                        value={filterSubject}
+                        onChange={(e) => setFilterSubject(e.target.value)}
+                        className="w-full sm:w-auto p-2.5 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#111115] text-xs font-bold text-slate-200 cursor-pointer min-h-[44px] sm:min-w-[150px]"
+                      >
+                        <option value="All" className="bg-[#111115]">All Subjects</option>
+                        {allSubjects.map(sub => (
+                          <option key={sub} value={sub} className="bg-[#111115]">{sub}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 min-h-[44px]">
+                      <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 flex-shrink-0">
+                        <ArrowUpDown className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Sort:</span>
+                      </span>
+                      <select
+                        value={sortBy}
+                        onChange={(e: any) => setSortBy(e.target.value)}
+                        className="w-full sm:w-auto p-2.5 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#111115] text-xs font-bold text-slate-200 cursor-pointer min-h-[44px] sm:min-w-[150px]"
+                      >
+                        <option value="newest" className="bg-[#111115]">Newest Added</option>
+                        <option value="oldest" className="bg-[#111115]">Oldest Added</option>
+                        <option value="questions_desc" className="bg-[#111115]">Most Questions</option>
+                        <option value="questions_asc" className="bg-[#111115]">Least Questions</option>
+                        <option value="title_asc" className="bg-[#111115]">Alphabetical (A-Z)</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -2090,8 +2287,8 @@ export default function AIQuizGenerator() {
                   ) : (
                     // Quiz Active Mode Question View
                     <div className="flex flex-col gap-6">
-                      {/* Grid Progress Indicators */}
-                      <div className="flex items-center gap-2 flex-wrap pb-4 border-b border-white/10">
+                      {/* Grid Progress Indicators with Spacious Touch Sizes */}
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap pb-4 border-b border-white/[0.06]">
                         {selectedQuiz.questions.map((q, idx) => {
                           const isCurrent = activeQuestionIndex === idx;
                           const isChecked = showInstantFeedback && checkedQuestions[q.id];
@@ -2103,7 +2300,7 @@ export default function AIQuizGenerator() {
                               key={q.id}
                               onClick={() => setActiveQuestionIndex(idx)}
                               className={cn(
-                                "w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all border cursor-pointer",
+                                "w-11 h-11 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center text-sm font-bold transition-all border cursor-pointer",
                                 isCurrent
                                   ? isChecked
                                     ? isRight
