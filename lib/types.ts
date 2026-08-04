@@ -56,6 +56,7 @@ export interface QuizAttempt {
   status: 'in_progress' | 'completed';
   startedAt: string;
   activeQuestions?: Question[]; // Preserved randomized order and choices
+  timeLimit?: number; // Time limit in seconds, 0 or undefined for no limit
 }
 
 export interface ExtractionLog {

@@ -215,10 +215,47 @@ export default function ElectricalReviewPro() {
   const [quizConfig, setQuizConfig] = useState({
     randomizeQuestions: false,
     randomizeChoices: false,
+    timeLimit: 0, // In seconds. 0 means no limit.
   });
   const [activeQuestions, setActiveQuestions] = useState<Question[]>([]);
   const [showQuizSetupModal, setShowQuizSetupModal] = useState<Quiz | null>(null);
   const [checkedQuestions, setCheckedQuestions] = useState<Record<string, boolean>>({});
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
+
+  // Timer logic for active quiz
+  useEffect(() => {
+    if (activeMode !== 'take' || !quizAttempt || quizAttempt.status !== 'in_progress' || !quizAttempt.timeLimit) {
+      setTimeRemaining(null);
+      return;
+    }
+
+    const calculateRemaining = () => {
+      const started = new Date(quizAttempt.startedAt).getTime();
+      const elapsed = (Date.now() - started) / 1000;
+      const remaining = Math.max(0, quizAttempt.timeLimit! - elapsed);
+      return Math.ceil(remaining);
+    };
+
+    setTimeRemaining(calculateRemaining());
+
+    const intervalId = setInterval(() => {
+      setTimeRemaining(calculateRemaining());
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [activeMode, quizAttempt?.status, quizAttempt?.startedAt, quizAttempt?.timeLimit]);
+
+  // Auto-submit when time is up
+  useEffect(() => {
+    if (timeRemaining !== null && timeRemaining <= 0 && activeMode === 'take' && quizAttempt?.status === 'in_progress') {
+      // Small timeout to ensure state is settled
+      const timer = setTimeout(() => {
+        submitQuizAnswers();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [timeRemaining, activeMode, quizAttempt?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // Save option to localStorage
   useEffect(() => {
@@ -226,6 +263,17 @@ export default function ElectricalReviewPro() {
       localStorage.setItem('quiz_show_instant_feedback', String(showInstantFeedback));
     }
   }, [showInstantFeedback]);
+
+  // Timer formatting helper
+  const formatTimer = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
 
   // Helper functions for instant feedback correctness checking
   const checkSingleAnswerCorrectness = (q: Question, userAns: any): boolean => {
@@ -1084,7 +1132,8 @@ export default function ElectricalReviewPro() {
       totalQuestions: currentQuestions.length,
       status: 'in_progress',
       startedAt: new Date().toISOString(),
-      activeQuestions: currentQuestions
+      activeQuestions: currentQuestions,
+      timeLimit: config.timeLimit,
     });
     setShowResults(false);
     setActiveMode('take');
@@ -2222,11 +2271,24 @@ export default function ElectricalReviewPro() {
                     <h2 className="text-base font-bold text-white truncate mt-1">{selectedQuiz.title}</h2>
                   </div>
 
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="text-xs text-slate-400">Progress:</span>
-                    <span className="text-sm font-extrabold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
-                      {Object.keys(userAnswers).length} / {activeQuestions.length} answered
-                    </span>
+                  <div className="flex items-center gap-4 flex-shrink-0">
+                    {timeRemaining !== null && (
+                      <div className="flex items-center gap-2 bg-slate-900/50 border border-slate-700/50 px-3 py-1.5 rounded-lg">
+                        <Clock className={cn("w-4 h-4", timeRemaining <= 60 ? "text-rose-400 animate-pulse" : "text-slate-400")} />
+                        <span className={cn(
+                          "text-sm font-bold font-mono tracking-wider", 
+                          timeRemaining <= 60 ? "text-rose-400" : "text-slate-200"
+                        )}>
+                          {formatTimer(timeRemaining)}
+                        </span>
+                      </div>
+                    )}
+                    <div className={cn("flex items-center gap-3", timeRemaining !== null && "border-l border-white/10 pl-4")}>
+                      <span className="text-xs text-slate-400">Progress:</span>
+                      <span className="text-sm font-extrabold text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-lg">
+                        {Object.keys(userAnswers).length} / {activeQuestions.length} answered
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -2263,14 +2325,37 @@ export default function ElectricalReviewPro() {
                       </div>
 
                       {/* Score Badge */}
-                      <div className="max-w-xs mx-auto w-full p-5 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
-                        <span className="text-sm text-indigo-300 font-bold block">YOUR SCORE</span>
-                        <h4 className="text-3xl font-black text-white mt-1">
-                          {quizAttempt.score} <span className="text-base text-indigo-400 font-medium">/ {quizAttempt.totalQuestions}</span>
+                      <div className="max-w-md mx-auto w-full p-6 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl flex flex-col items-center">
+                        <span className="text-sm text-indigo-300 font-bold block mb-2">FINAL SCORE</span>
+                        <h4 className="text-4xl font-black text-white">
+                          {quizAttempt.score} <span className="text-xl text-indigo-400 font-medium">/ {quizAttempt.totalQuestions}</span>
                         </h4>
-                        <span className="text-[10px] text-indigo-400 font-bold block mt-1 uppercase">
-                          {Math.round((quizAttempt.score / quizAttempt.totalQuestions) * 100)}% Pass Accuracy
+                        <span className="text-xs text-indigo-400 font-bold block mt-2 uppercase tracking-wider">
+                          {Math.round((quizAttempt.score / quizAttempt.totalQuestions) * 100)}% Accuracy
                         </span>
+                        
+                        <div className="flex items-center gap-4 mt-6 w-full pt-6 border-t border-indigo-500/20">
+                          <div className="flex-1 text-center">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Time Spent</span>
+                            <span className="text-sm text-slate-200 font-bold font-mono">
+                              {formatDuration(quizAttempt.startedAt, quizAttempt.completedAt)}
+                            </span>
+                          </div>
+                          <div className="w-px h-8 bg-indigo-500/20"></div>
+                          <div className="flex-1 text-center">
+                            <span className="text-[10px] text-emerald-400/80 font-bold uppercase block mb-1">Correct</span>
+                            <span className="text-sm text-emerald-400 font-bold">
+                              {quizAttempt.score}
+                            </span>
+                          </div>
+                          <div className="w-px h-8 bg-indigo-500/20"></div>
+                          <div className="flex-1 text-center">
+                            <span className="text-[10px] text-rose-400/80 font-bold uppercase block mb-1">Incorrect</span>
+                            <span className="text-sm text-rose-400 font-bold">
+                              {quizAttempt.totalQuestions - quizAttempt.score}
+                            </span>
+                          </div>
+                        </div>
                       </div>
 
                       {/* Detailed Question Review List */}
@@ -3705,6 +3790,25 @@ export default function ElectricalReviewPro() {
                     <span className="block text-xs text-slate-500 mt-1">Shuffle options (A, B, C, D) for each multiple-choice question.</span>
                   </div>
                 </label>
+              </div>
+
+              <div className="p-4 bg-[#0E0E11] border border-white/5 rounded-xl">
+                <div className="flex flex-col gap-2">
+                  <span className="block text-sm font-bold text-slate-200">Time Limit</span>
+                  <span className="block text-xs text-slate-500">Automatically submit the quiz when time runs out.</span>
+                  <select
+                    value={quizConfig.timeLimit}
+                    onChange={(e) => setQuizConfig(prev => ({ ...prev, timeLimit: parseInt(e.target.value, 10) }))}
+                    className="mt-2 bg-[#111115] border border-white/10 text-slate-300 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5 transition-all outline-none"
+                  >
+                    <option value={0}>No Time Limit</option>
+                    <option value={15 * 60}>15 Minutes</option>
+                    <option value={30 * 60}>30 Minutes</option>
+                    <option value={60 * 60}>1 Hour</option>
+                    <option value={120 * 60}>2 Hours</option>
+                    <option value={180 * 60}>3 Hours</option>
+                  </select>
+                </div>
               </div>
             </div>
 
