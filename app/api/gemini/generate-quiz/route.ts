@@ -73,10 +73,12 @@ CRITICAL INSTRUCTIONS:
    - If the document already contains pre-written questions (e.g., test sheets, worksheets, question banks, reviewers), you MUST extract 100% of them with perfect fidelity. Do NOT skip, summarize, or truncate. If there are 30, 50, 80, 100 or more questions, you MUST extract ALL of them sequentially. There is NO upper limit or artificial cap on the number of questions.
    - If the document contains study guides, textbooks, chapters, summaries, slides, or notes (which do not have explicit questions, or have very few), analyze the content deeply and GENERATE a high-quality quiz of at least 15 to 25 questions that comprehensively tests the core concepts, terms, formulas, and facts in the text.
    - If the document contains a mix of both, extract all existing questions AND generate additional highly relevant questions from the informational content to form a complete, robust quiz.
-2. ANSWER SELECTION & EXPLANATIONS (CONCISE):
+2. ANSWER SELECTION & COMPREHENSIVE EXPLANATIONS:
    - For extracted questions: Detect bold letters, answer keys, solutions, or asterisks. Cross-reference any answer key (usually at the end) and pair it with the corresponding question.
    - For generated questions: Always select a mathematically or factually correct answer.
-   - For ALL questions, provide a clear, extremely concise explanation or context-based reference (maximum 1 sentence) in the 'explanation' field to keep the JSON output extremely compact, preventing any token limit truncation.
+   - For ALL questions, provide a comprehensive, step-by-step solution in the 'explanation' field.
+     - For computational questions: Include the complete mathematical formula(s), clearly define each variable, substitute the given values, perform the calculations in the correct order, and present the final answer with appropriate units. Use proper LaTeX formatting.
+     - For conceptual/theory questions: Provide a concise but complete explanation that justifies why the correct answer is correct and why other choices are incorrect. The goal is to make it a complete learning resource.
 3. IMAGES & DIAGRAMS:
    - If you encounter image references (like [IMAGE_REF_0], [IMAGE_REF_1]) in the text, look at the corresponding images provided in the multimodal context. Preserve the reference tags (e.g., "[IMAGE_REF_0]") inside the question text or map them correctly to the question metadata.
 4. TYPES OF QUESTIONS:
@@ -227,7 +229,7 @@ Document Content:
               },
               explanation: {
                 type: Type.STRING,
-                description: 'Extremely concise 1-sentence explanation, solution steps, or reference context.',
+                description: 'Comprehensive, step-by-step solution, mathematical calculations with LaTeX, or in-depth conceptual explanation.',
               },
               difficulty: {
                 type: Type.STRING,
