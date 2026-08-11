@@ -284,7 +284,7 @@ export default function ElectricalReviewPro() {
       return isChoiceCorrect(q, String(userAns || ''));
     } else if (q.type === QuestionType.TRUE_FALSE) {
       return String(userAns).toLowerCase() === String(correctAns).toLowerCase();
-    } else if (q.type !== QuestionType.MCQ && q.type !== QuestionType.TRUE_FALSE && q.type !== QuestionType.MATCHING) {
+    } else if (q.type === QuestionType.IDENTIFICATION || q.type === QuestionType.FILL_IN_BLANK) {
       return String(userAns || '').trim().toLowerCase() === String(correctAns).trim().toLowerCase();
     } else if (q.type === QuestionType.MATCHING) {
       const pairs = q.matchingPairs || [];
@@ -2612,7 +2612,7 @@ export default function ElectricalReviewPro() {
                                )}
  
                                {/* Fill in the Blank / Identification / Direct Input */}
-                               {(q.type !== QuestionType.MCQ && q.type !== QuestionType.TRUE_FALSE && q.type !== QuestionType.MATCHING) && (() => {
+                               {(q.type === QuestionType.IDENTIFICATION || q.type === QuestionType.FILL_IN_BLANK || q.type === QuestionType.ENUMERATION || q.type === QuestionType.ESSAY) && (() => {
                                  const isChecked = showInstantFeedback && checkedQuestions[q.id];
                                  const isRight = checkSingleAnswerCorrectness(q, userAnswers[q.id]);
                                  return (
@@ -2621,15 +2621,7 @@ export default function ElectricalReviewPro() {
                                      <input
                                        type="text"
                                        disabled={isChecked}
-                                       placeholder={
-                                        q.type === QuestionType.ESSAY 
-                                          ? "Write a short summary essay..." 
-                                          : q.type === QuestionType.COMPUTATIONAL 
-                                            ? "Type your calculation answer or notes..." 
-                                            : q.type === QuestionType.SITUATIONAL 
-                                              ? "Describe your analysis..." 
-                                              : "Answer here..."
-                                      }
+                                       placeholder={q.type === QuestionType.ESSAY ? "Write a short summary essay..." : "Answer here..."}
                                        value={userAnswers[q.id] || ''}
                                        onChange={(e) => handleAnswerSelect(q.id, e.target.value)}
                                        className={cn(
@@ -2663,13 +2655,7 @@ export default function ElectricalReviewPro() {
                                              <div>
                                                <p className="font-bold text-red-300 text-sm">Incorrect</p>
                                                <p className="text-[11px] text-slate-400 mt-1">
-                                                 {q.correctAnswer ? (
-                                                    <>
-                                                      Correct answer: <span className="text-emerald-400 font-bold bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded inline-block align-middle"><MathRenderer text={String(q.correctAnswer)} /></span>
-                                                    </>
-                                                  ) : (
-                                                    <span>Refer to the explanation below for the complete solution.</span>
-                                                  )}
+                                                 Correct answer: <span className="text-emerald-400 font-bold bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded inline-block align-middle"><MathRenderer text={String(q.correctAnswer)} /></span>
                                                </p>
                                              </div>
                                            </>
