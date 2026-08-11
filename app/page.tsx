@@ -15,6 +15,7 @@ import {
   ArrowRight,
   RotateCcw,
   Check,
+  Play,
   X,
   ChevronLeft,
   ChevronRight,
@@ -52,7 +53,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { QuestionType, Question, Quiz, QuizAttempt, ExtractionLog } from '@/lib/types';
+import { QuestionType, Question, Quiz, QuizAttempt, ExtractionLog, ScheduledQuiz } from '@/lib/types';
 import { MathRenderer } from '@/components/MathRenderer';
 
 // Recharts components imports
@@ -177,7 +178,44 @@ export default function ElectricalReviewPro() {
   // Application states
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
-  const [activeMode, setActiveMode] = useState<'list' | 'take' | 'edit' | 'extract' | 'history'>('list');
+  const [activeMode, setActiveMode] = useState<'list' | 'take' | 'edit' | 'extract' | 'history' | 'calendar'>('list');
+  
+  // User Role Configuration (Admin vs Member)
+  const [userRole, setUserRole] = useState<'admin' | 'member'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('review_user_role');
+      if (saved === 'admin' || saved === 'member') return saved;
+    }
+    return 'admin'; // default to admin so they see all controls immediately
+  });
+
+  // Calendar & Scheduling States
+  const [scheduledQuizzes, setScheduledQuizzes] = useState<ScheduledQuiz[]>([]);
+  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
+  const [calendarView, setCalendarView] = useState<'month' | 'week' | 'day'>('month');
+
+  // Schedule Modal and Form States
+  const [showScheduleModal, setShowScheduleModal] = useState<boolean>(false);
+  const [editingSchedule, setEditingSchedule] = useState<ScheduledQuiz | null>(null);
+  const [scheduleQuizId, setScheduleQuizId] = useState<string>('');
+  const [scheduleDate, setScheduleDate] = useState<string>('');
+  const [scheduleTime, setScheduleTime] = useState<string>('');
+  const [scheduleDuration, setScheduleDuration] = useState<number>(30); // minutes
+  const [scheduleNotes, setScheduleNotes] = useState<string>('');
+  const [scheduleSubject, setScheduleSubject] = useState<string>('');
+  const [scheduleCategory, setScheduleCategory] = useState<string>('');
+
+  // Searching / Filtering quizzes inside the Schedule Modal
+  const [scheduleSearchQuery, setScheduleSearchQuery] = useState<string>('');
+  const [scheduleFilterSubject, setScheduleFilterSubject] = useState<string>('All');
+  const [scheduleFilterCategory, setScheduleFilterCategory] = useState<string>('All');
+  const [scheduleFilterDifficulty, setScheduleFilterDifficulty] = useState<string>('All');
+
+  // Delete Schedule Confirm Modal State
+  const [deleteScheduleConfirm, setDeleteScheduleConfirm] = useState<ScheduledQuiz | null>(null);
+
+  // Selected schedule details view state
+  const [viewingScheduleDetails, setViewingScheduleDetails] = useState<ScheduledQuiz | null>(null);
   const [logsExpanded, setLogsExpanded] = useState<boolean>(false);
   const [docsExpanded, setDocsExpanded] = useState<boolean>(false);
   const [opsCenterExpanded, setOpsCenterExpanded] = useState<boolean>(true);
@@ -494,6 +532,230 @@ export default function ElectricalReviewPro() {
     setAttempts(updatedAttempts);
     localStorage.setItem('electrical_review_pro_attempts', JSON.stringify(updatedAttempts));
   };
+
+  // Load scheduled quizzes from local storage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('electrical_review_pro_schedules');
+      if (stored) {
+        try {
+          setScheduledQuizzes(JSON.parse(stored));
+        } catch (e) {
+          console.error('Error loading scheduled quizzes:', e);
+        }
+      }
+    }
+  }, []);
+
+  // Save scheduled quizzes helper
+  const saveSchedulesToStorage = (updatedSchedules: ScheduledQuiz[]) => {
+    setScheduledQuizzes(updatedSchedules);
+    localStorage.setItem('electrical_review_pro_schedules', JSON.stringify(updatedSchedules));
+  };
+
+  // Calendar navigation and helper functions
+  const handlePrevCalendar = () => {
+    const d = new Date(calendarDate);
+    if (calendarView === 'month') {
+      d.setMonth(d.getMonth() - 1);
+    } else if (calendarView === 'week') {
+      d.setDate(d.getDate() - 7);
+    } else if (calendarView === 'day') {
+      d.setDate(d.getDate() - 1);
+    }
+    setCalendarDate(d);
+  };
+
+  const handleNextCalendar = () => {
+    const d = new Date(calendarDate);
+    if (calendarView === 'month') {
+      d.setMonth(d.getMonth() + 1);
+    } else if (calendarView === 'week') {
+      d.setDate(d.getDate() + 7);
+    } else if (calendarView === 'day') {
+      d.setDate(d.getDate() + 1);
+    }
+    setCalendarDate(d);
+  };
+
+  const handleTodayCalendar = () => {
+    setCalendarDate(new Date());
+  };
+
+  const getSchedulesForDate = (dateStr: string) => {
+    return scheduledQuizzes.filter(s => s.date === dateStr);
+  };
+
+  const MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // Status mapping logic (Requirement 4)
+  const getScheduledQuizStatus = (schedule: ScheduledQuiz) => {
+    // If user has a completed attempt with this schedule id
+    const hasCompletedAttempt = attempts.some(
+      att => att.scheduledQuizId === schedule.id && att.status !== 'in_progress'
+    );
+    if (hasCompletedAttempt) {
+      return 'Completed';
+    }
+
+    // Check if an attempt is currently in_progress for this schedule id
+    const hasInProgressAttempt = attempts.some(
+      att => att.scheduledQuizId === schedule.id && att.status === 'in_progress'
+    );
+    if (hasInProgressAttempt) {
+      return 'In Progress';
+    }
+
+    // Compute window boundaries
+    const todayStr = new Date().toISOString().split('T')[0];
+    const schedDate = schedule.date;
+
+    if (schedDate > todayStr) {
+      return 'Upcoming';
+    }
+
+    if (schedDate < todayStr) {
+      return 'Missed/Expired';
+    }
+
+    // If schedule is today, let's look at start time vs now
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+    const [startH, startM] = schedule.startTime.split(':').map(Number);
+    const startMinutes = startH * 60 + startM;
+    const duration = schedule.duration || 60;
+    const endMinutes = startMinutes + duration;
+
+    if (currentMinutes < startMinutes) {
+      return 'Upcoming';
+    } else if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) {
+      return 'Available';
+    } else {
+      return 'Missed/Expired';
+    }
+  };
+
+  // Form handlers
+  const handleOpenCreateSchedule = (dateStr: string) => {
+    if (quizzes.length === 0) {
+      showToast('Please upload or generate a quiz reviewer first!', 'error');
+      return;
+    }
+    setScheduleQuizId(quizzes[0].id);
+    setScheduleDate(dateStr);
+    setScheduleTime('09:00');
+    setScheduleDuration(30);
+    setScheduleNotes('');
+    setScheduleSubject(quizzes[0].subject || '');
+    setScheduleCategory(quizzes[0].category || '');
+    setEditingSchedule(null);
+    setShowScheduleModal(true);
+  };
+
+  const handleOpenEditSchedule = (schedule: ScheduledQuiz) => {
+    setScheduleQuizId(schedule.quizId);
+    setScheduleDate(schedule.date);
+    setScheduleTime(schedule.startTime);
+    setScheduleDuration(schedule.duration);
+    setScheduleNotes(schedule.notes || '');
+    setScheduleSubject(schedule.subject || '');
+    setScheduleCategory(schedule.category || '');
+    setEditingSchedule(schedule);
+    setShowScheduleModal(true);
+  };
+
+  const handleSaveSchedule = () => {
+    if (!scheduleQuizId) {
+      showToast('Please select a quiz to schedule.', 'error');
+      return;
+    }
+    const origQuiz = quizzes.find(q => q.id === scheduleQuizId);
+    if (!origQuiz) {
+      showToast('Selected quiz not found.', 'error');
+      return;
+    }
+
+    if (editingSchedule) {
+      const updated = scheduledQuizzes.map(s => {
+        if (s.id === editingSchedule.id) {
+          return {
+            ...s,
+            quizId: scheduleQuizId,
+            quizTitle: origQuiz.title,
+            date: scheduleDate,
+            startTime: scheduleTime,
+            duration: scheduleDuration,
+            notes: scheduleNotes,
+            subject: scheduleSubject || origQuiz.subject || '',
+            category: scheduleCategory || origQuiz.category || ''
+          };
+        }
+        return s;
+      });
+      saveSchedulesToStorage(updated);
+      showToast('Quiz schedule updated successfully!', 'success');
+    } else {
+      const newSchedule: ScheduledQuiz = {
+        id: `schedule-${Date.now()}`,
+        quizId: scheduleQuizId,
+        quizTitle: origQuiz.title,
+        date: scheduleDate,
+        startTime: scheduleTime,
+        duration: scheduleDuration,
+        notes: scheduleNotes,
+        subject: scheduleSubject || origQuiz.subject || '',
+        category: scheduleCategory || origQuiz.category || ''
+      };
+      saveSchedulesToStorage([newSchedule, ...scheduledQuizzes]);
+      showToast('Quiz scheduled successfully!', 'success');
+    }
+    setShowScheduleModal(false);
+  };
+
+  const handleDeleteSchedule = (schedule: ScheduledQuiz) => {
+    const filtered = scheduledQuizzes.filter(s => s.id !== schedule.id);
+    saveSchedulesToStorage(filtered);
+    showToast('Quiz schedule removed.', 'info');
+    if (viewingScheduleDetails?.id === schedule.id) {
+      setViewingScheduleDetails(null);
+    }
+  };
+
+  // Searching / filtering lists in the scheduler dropdown
+  const filteredQuizzesForScheduling = useMemo(() => {
+    return quizzes.filter(quiz => {
+      const matchesSearch = quiz.title.toLowerCase().includes(scheduleSearchQuery.toLowerCase()) ||
+        (quiz.subject && quiz.subject.toLowerCase().includes(scheduleSearchQuery.toLowerCase()));
+      const matchesSubject = scheduleFilterSubject === 'All' || quiz.subject === scheduleFilterSubject;
+      const matchesCategory = scheduleFilterCategory === 'All' || quiz.category === scheduleFilterCategory;
+      const matchesDifficulty = scheduleFilterDifficulty === 'All' || 
+        quiz.questions.some(q => q.difficulty === scheduleFilterDifficulty);
+
+      return matchesSearch && matchesSubject && matchesCategory && matchesDifficulty;
+    });
+  }, [quizzes, scheduleSearchQuery, scheduleFilterSubject, scheduleFilterCategory, scheduleFilterDifficulty]);
+
+  const uniqueSchedulingSubjects = useMemo(() => {
+    const setOfSubs = new Set<string>();
+    quizzes.forEach(q => {
+      if (q.subject) setOfSubs.add(q.subject);
+    });
+    return Array.from(setOfSubs);
+  }, [quizzes]);
+
+  const uniqueSchedulingCategories = useMemo(() => {
+    const setOfCats = new Set<string>();
+    quizzes.forEach(q => {
+      if (q.category) setOfCats.add(q.category);
+    });
+    return Array.from(setOfCats);
+  }, [quizzes]);
 
   // Get details for any attempt
   const getAttemptQuizDetails = React.useCallback((attempt: QuizAttempt) => {
@@ -1119,7 +1381,7 @@ export default function ElectricalReviewPro() {
   };
 
   // Start Quiz runner
-  const startQuiz = (quiz: Quiz, configOverride?: typeof quizConfig) => {
+  const startQuiz = (quiz: Quiz, configOverride?: typeof quizConfig, scheduledQuizId?: string | null) => {
     const config = configOverride || quizConfig;
     setSelectedQuiz(quiz);
     setUserAnswers({});
@@ -1177,6 +1439,7 @@ export default function ElectricalReviewPro() {
       startedAt: new Date().toISOString(),
       activeQuestions: currentQuestions,
       timeLimit: config.timeLimit,
+      scheduledQuizId: scheduledQuizId || null,
     });
     setShowResults(false);
     setActiveMode('take');
@@ -1580,13 +1843,56 @@ export default function ElectricalReviewPro() {
               </div>
             </div>
 
-            <button
-              onClick={() => setActiveMode('extract')}
-              className="flex items-center gap-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-lg transition-all shadow-md cursor-pointer"
-            >
-              <Upload className="w-4 h-4" />
-              <span>Upload Document</span>
-            </button>
+            {/* Role Switcher */}
+            <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl p-1 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setUserRole('admin');
+                  localStorage.setItem('review_user_role', 'admin');
+                  showToast('Switched to Admin Role', 'info');
+                }}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 cursor-pointer",
+                  userRole === 'admin'
+                    ? "bg-indigo-600 text-white shadow"
+                    : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-300" />
+                <span className="hidden sm:inline">Admin</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUserRole('member');
+                  localStorage.setItem('review_user_role', 'member');
+                  showToast('Switched to Member Role', 'info');
+                  if (activeMode === 'edit' || activeMode === 'extract') {
+                    setActiveMode('list');
+                  }
+                }}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1 cursor-pointer",
+                  userRole === 'member'
+                    ? "bg-indigo-600 text-white shadow"
+                    : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                <UserCheck className="w-3.5 h-3.5 text-indigo-300" />
+                <span className="hidden sm:inline">Member</span>
+              </button>
+            </div>
+
+            {userRole === 'admin' && (
+              <button
+                onClick={() => setActiveMode('extract')}
+                className="flex items-center gap-2 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-lg transition-all shadow-md cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span className="hidden xs:inline">Upload Document</span>
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -1702,7 +2008,7 @@ export default function ElectricalReviewPro() {
               setSelectedAttemptId(null);
             }}
             className={cn(
-              "flex-1 flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-bold tracking-wide transition-all",
+              "flex-1 flex flex-col items-center justify-center gap-1 py-2 px-0.5 rounded-xl text-[10px] font-bold tracking-wide transition-all",
               activeMode === 'list' && !selectedQuiz
                 ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(99,102,241,0.2)]"
                 : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
@@ -1712,17 +2018,36 @@ export default function ElectricalReviewPro() {
             <span>Library ({quizzes.length})</span>
           </button>
 
+          {userRole === 'admin' && (
+            <button
+              onClick={() => setActiveMode('extract')}
+              className={cn(
+                "flex-1 flex flex-col items-center justify-center gap-1 py-2 px-0.5 rounded-xl text-[10px] font-bold tracking-wide transition-all",
+                activeMode === 'extract'
+                  ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(99,102,241,0.2)]"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+              )}
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload Src</span>
+            </button>
+          )}
+
           <button
-            onClick={() => setActiveMode('extract')}
+            onClick={() => {
+              setActiveMode('calendar');
+              setSelectedQuiz(null);
+              setSelectedAttemptId(null);
+            }}
             className={cn(
-              "flex-1 flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-bold tracking-wide transition-all",
-              activeMode === 'extract'
+              "flex-1 flex flex-col items-center justify-center gap-1 py-2 px-0.5 rounded-xl text-[10px] font-bold tracking-wide transition-all",
+              activeMode === 'calendar'
                 ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(99,102,241,0.2)]"
                 : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
             )}
           >
-            <Upload className="w-4 h-4" />
-            <span>Upload Src</span>
+            <Calendar className="w-4 h-4" />
+            <span>Calendar</span>
           </button>
 
           <button
@@ -1732,7 +2057,7 @@ export default function ElectricalReviewPro() {
               setSelectedAttemptId(null);
             }}
             className={cn(
-              "flex-1 flex flex-col items-center justify-center gap-1 py-2.5 px-1 rounded-xl text-[10px] font-bold tracking-wide transition-all",
+              "flex-1 flex flex-col items-center justify-center gap-1 py-2 px-0.5 rounded-xl text-[10px] font-bold tracking-wide transition-all",
               activeMode === 'history'
                 ? "bg-indigo-600 text-white shadow-[0_4px_12px_rgba(99,102,241,0.2)]"
                 : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
@@ -1785,6 +2110,26 @@ export default function ElectricalReviewPro() {
 
                   <button
                     onClick={() => {
+                      setActiveMode('calendar');
+                      setSelectedQuiz(null);
+                      setSelectedAttemptId(null);
+                    }}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all text-left cursor-pointer border",
+                      activeMode === 'calendar'
+                        ? "bg-indigo-600/10 text-white border-indigo-500/30 shadow-[0_2px_10px_rgba(99,102,241,0.05)]"
+                        : "text-slate-400 border-transparent hover:bg-white/[0.03] hover:text-slate-200"
+                    )}
+                  >
+                    <Calendar className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span className="flex-grow">Calendar Schedule</span>
+                    {scheduledQuizzes.length > 0 && (
+                      <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-extrabold rounded-full border border-indigo-500/20">{scheduledQuizzes.length}</span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => {
                       setActiveMode('history');
                       setSelectedQuiz(null);
                       setSelectedAttemptId(null);
@@ -1805,13 +2150,15 @@ export default function ElectricalReviewPro() {
                     )}
                   </button>
 
-                  <button
-                    onClick={handleMergeQuizzesClick}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-indigo-400 hover:bg-indigo-500/10 hover:text-white transition-all text-left cursor-pointer border border-transparent hover:border-indigo-500/20"
-                  >
-                    <Layers className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                    <span>Merge All Quizzes</span>
-                  </button>
+                  {userRole === 'admin' && (
+                    <button
+                      onClick={handleMergeQuizzesClick}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-indigo-400 hover:bg-indigo-500/10 hover:text-white transition-all text-left cursor-pointer border border-transparent hover:border-indigo-500/20"
+                    >
+                      <Layers className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                      <span>Merge All Quizzes</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -2087,10 +2434,768 @@ export default function ElectricalReviewPro() {
               </motion.div>
             )}
 
+            {/* MODE 1.5: CALENDAR SCHEDULE WORKSPACE */}
+            {activeMode === 'calendar' && (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col gap-6"
+              >
+                {/* Header Banner */}
+                <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-black text-white flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-indigo-400" />
+                      <span>Civil & Electrical Board Exam Study Calendar</span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Set timed exam constraints on uploaded reviewers, assign study dates, and build rigorous test habits.
+                    </p>
+                  </div>
+                  {userRole === 'admin' && (
+                    <button
+                      onClick={() => {
+                        if (quizzes.length === 0) {
+                          showToast('Please upload or generate a quiz reviewer first!', 'error');
+                          return;
+                        }
+                        handleOpenCreateSchedule(new Date().toISOString().split('T')[0]);
+                      }}
+                      className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl transition-all shadow-lg cursor-pointer flex items-center gap-1.5 shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Schedule Mock Exam</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Calendar View Controls */}
+                <div className="bg-[#111114] border border-white/10 rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={handlePrevCalendar}
+                      className="p-2 hover:bg-white/5 border border-white/10 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer"
+                      title="Previous"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleTodayCalendar}
+                      className="px-3 py-1.5 hover:bg-white/5 border border-white/10 rounded-lg text-xs font-bold text-slate-300 hover:text-white transition-all cursor-pointer"
+                    >
+                      Today
+                    </button>
+                    <button
+                      onClick={handleNextCalendar}
+                      className="p-2 hover:bg-white/5 border border-white/10 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer"
+                      title="Next"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                    <span className="text-sm font-black text-white ml-2">
+                      {calendarView === 'month' && `${MONTHS[calendarDate.getMonth()]} ${calendarDate.getFullYear()}`}
+                      {calendarView === 'week' && `Week of ${new Date(calendarDate.getTime() - calendarDate.getDay() * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}`}
+                      {calendarView === 'day' && calendarDate.toLocaleDateString(undefined, {weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'})}
+                    </span>
+                  </div>
+
+                  <div className="flex bg-white/5 p-1 border border-white/5 rounded-xl text-xs font-bold">
+                    <button
+                      onClick={() => setCalendarView('month')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
+                        calendarView === 'month' ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
+                      )}
+                    >
+                      Month
+                    </button>
+                    <button
+                      onClick={() => setCalendarView('week')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
+                        calendarView === 'week' ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
+                      )}
+                    >
+                      Week
+                    </button>
+                    <button
+                      onClick={() => setCalendarView('day')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
+                        calendarView === 'day' ? "bg-indigo-600 text-white shadow" : "text-slate-400 hover:text-white"
+                      )}
+                    >
+                      Day
+                    </button>
+                  </div>
+                </div>
+
+                {/* VIEW 1: MONTHLY VIEW GRID */}
+                {calendarView === 'month' && (() => {
+                  const year = calendarDate.getFullYear();
+                  const month = calendarDate.getMonth();
+                  const daysInMonth = new Date(year, month + 1, 0).getDate();
+                  const firstDayIndex = new Date(year, month, 1).getDay();
+                  const prevMonthDays = new Date(year, month, 0).getDate();
+
+                  const cells = [];
+                  // Prev month padding
+                  for (let i = firstDayIndex - 1; i >= 0; i--) {
+                    const dayNum = prevMonthDays - i;
+                    const d = new Date(year, month - 1, dayNum);
+                    const dateStr = d.toISOString().split('T')[0];
+                    cells.push({ dateStr, dayNum, isCurrentMonth: false });
+                  }
+                  // Current month
+                  for (let i = 1; i <= daysInMonth; i++) {
+                    const d = new Date(year, month, i);
+                    const dateStr = d.toISOString().split('T')[0];
+                    cells.push({ dateStr, dayNum: i, isCurrentMonth: true });
+                  }
+                  // Next month padding to multi of 7
+                  const totalCells = cells.length <= 35 ? 35 : 42;
+                  const nextPadding = totalCells - cells.length;
+                  for (let i = 1; i <= nextPadding; i++) {
+                    const d = new Date(year, month + 1, i);
+                    const dateStr = d.toISOString().split('T')[0];
+                    cells.push({ dateStr, dayNum: i, isCurrentMonth: false });
+                  }
+
+                  return (
+                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-4 sm:p-5 shadow-xl">
+                      {/* Weekday labels */}
+                      <div className="grid grid-cols-7 text-center mb-2 border-b border-white/5 pb-2">
+                        {WEEKDAYS.map(w => (
+                          <span key={w} className="text-[10px] sm:text-xs font-black text-slate-500 uppercase tracking-wider">{w}</span>
+                        ))}
+                      </div>
+
+                      {/* Day cells */}
+                      <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
+                        {cells.map((cell, idx) => {
+                          const daySchedules = getSchedulesForDate(cell.dateStr);
+                          const isToday = cell.dateStr === new Date().toISOString().split('T')[0];
+
+                          return (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "min-h-[85px] sm:min-h-[110px] border rounded-xl p-1.5 sm:p-2.5 flex flex-col gap-1 sm:gap-1.5 text-left transition-all relative overflow-hidden group",
+                                cell.isCurrentMonth ? "bg-[#0E0E11]/80 hover:bg-[#0E0E11]" : "bg-[#0A0A0B]/30 opacity-40",
+                                isToday ? "border-indigo-500 bg-indigo-500/[0.02]" : "border-white/5"
+                              )}
+                            >
+                              {/* Cell Header */}
+                              <div className="flex items-center justify-between">
+                                <span className={cn(
+                                  "text-xs font-extrabold px-1.5 py-0.5 rounded-md",
+                                  isToday ? "bg-indigo-600 text-white" : cell.isCurrentMonth ? "text-slate-300" : "text-slate-600"
+                                )}>
+                                  {cell.dayNum}
+                                </span>
+
+                                {userRole === 'admin' && cell.isCurrentMonth && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenCreateSchedule(cell.dateStr);
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-white/10 rounded text-slate-400 hover:text-white transition-all cursor-pointer"
+                                    title="Schedule exam on this date"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Daily schedule item badges */}
+                              <div className="flex flex-col gap-1 overflow-y-auto max-h-[50px] sm:max-h-[70px] scrollbar-thin">
+                                {daySchedules.map(sched => {
+                                  const status = getScheduledQuizStatus(sched);
+                                  return (
+                                    <div
+                                      key={sched.id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setViewingScheduleDetails(sched);
+                                      }}
+                                      className={cn(
+                                        "px-1.5 py-0.5 rounded text-[9px] font-black truncate text-left cursor-pointer transition-all border",
+                                        status === 'Available' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                        status === 'In Progress' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' :
+                                        status === 'Completed' ? 'bg-slate-500/15 text-slate-400 border-slate-500/25 line-through' :
+                                        status === 'Missed/Expired' ? 'bg-red-500/10 text-red-400 border-red-500/10' :
+                                        'bg-blue-500/10 text-blue-300 border-blue-500/20'
+                                      )}
+                                      title={`${sched.startTime} - ${sched.quizTitle}`}
+                                    >
+                                      <span className="font-mono text-[8px] mr-0.5 opacity-80">{sched.startTime}</span> {sched.quizTitle}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* VIEW 2: WEEKLY VIEW COLUMNS */}
+                {calendarView === 'week' && (() => {
+                  const currentDay = calendarDate.getDay();
+                  const sun = new Date(calendarDate);
+                  sun.setDate(calendarDate.getDate() - currentDay);
+                  const weekCells = [];
+                  for (let i = 0; i < 7; i++) {
+                    const d = new Date(sun);
+                    d.setDate(sun.getDate() + i);
+                    weekCells.push(d);
+                  }
+
+                  return (
+                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 shadow-xl flex flex-col gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+                        {weekCells.map((dayDate, idx) => {
+                          const dayStr = dayDate.toISOString().split('T')[0];
+                          const daySchedules = getSchedulesForDate(dayStr);
+                          const isToday = dayStr === new Date().toISOString().split('T')[0];
+
+                          return (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "bg-[#0E0E11] border rounded-xl p-4 flex flex-col gap-3 min-h-[220px] transition-all",
+                                isToday ? 'border-indigo-500 bg-indigo-500/[0.01]' : 'border-white/5'
+                              )}
+                            >
+                              <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                                <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                                  {WEEKDAYS[dayDate.getDay()]}
+                                </span>
+                                <span className={cn(
+                                  "text-xs font-bold px-2 py-0.5 rounded-full",
+                                  isToday ? "bg-indigo-600 text-white" : "text-slate-300"
+                                )}>
+                                  {dayDate.getDate()}
+                                </span>
+                              </div>
+
+                              <div className="flex flex-col gap-1.5 flex-grow overflow-y-auto max-h-[140px] scrollbar-thin">
+                                {daySchedules.length === 0 ? (
+                                  <span className="text-[10px] text-slate-600 italic mt-2">No mock tests</span>
+                                ) : (
+                                  daySchedules.map(sched => (
+                                    <div
+                                      key={sched.id}
+                                      onClick={() => setViewingScheduleDetails(sched)}
+                                      className="p-2 bg-black/40 border border-white/5 hover:border-indigo-500/20 rounded-lg cursor-pointer transition-all flex flex-col gap-1 text-left"
+                                    >
+                                      <span className="text-[9px] font-mono text-indigo-400">{sched.startTime}</span>
+                                      <span className="text-[10px] font-black text-white truncate">{sched.quizTitle}</span>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+
+                              {userRole === 'admin' && (
+                                <button
+                                  onClick={() => handleOpenCreateSchedule(dayStr)}
+                                  className="w-full py-1.5 border border-dashed border-white/10 rounded-lg text-[10px] text-slate-400 hover:text-white hover:border-white/20 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Schedule</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* VIEW 3: DAILY VIEW AGENDA */}
+                {calendarView === 'day' && (
+                  <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 shadow-xl">
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-center justify-between border-b border-white/5 pb-2 flex-wrap gap-2">
+                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-indigo-400" />
+                          <span>Agenda for {calendarDate.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                        </h4>
+                        {userRole === 'admin' && (
+                          <button
+                            onClick={() => handleOpenCreateSchedule(calendarDate.toISOString().split('T')[0])}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Schedule Quiz</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {getSchedulesForDate(calendarDate.toISOString().split('T')[0]).length === 0 ? (
+                        <div className="py-12 text-center bg-white/[0.01] border border-dashed border-white/5 rounded-xl text-slate-500 text-xs flex flex-col items-center gap-2">
+                          <Calendar className="w-8 h-8 text-slate-700" />
+                          <span>No quizzes scheduled for this day.</span>
+                          {userRole === 'admin' && (
+                            <button
+                              onClick={() => handleOpenCreateSchedule(calendarDate.toISOString().split('T')[0])}
+                              className="mt-2 text-indigo-400 font-bold hover:underline"
+                            >
+                              Schedule one now
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          {getSchedulesForDate(calendarDate.toISOString().split('T')[0])
+                            .sort((a, b) => a.startTime.localeCompare(b.startTime))
+                            .map(sched => {
+                              const status = getScheduledQuizStatus(sched);
+                              const origQuiz = quizzes.find(q => q.id === sched.quizId);
+
+                              return (
+                                <div
+                                  key={sched.id}
+                                  className="bg-[#0E0E11] border border-white/5 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-white/10 transition-all text-left"
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 font-mono text-xs font-bold mt-1">
+                                      {sched.startTime}
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <h5 className="text-sm font-bold text-white">{sched.quizTitle}</h5>
+                                        <span className={cn(
+                                          "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border",
+                                          status === 'Upcoming' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                          status === 'Available' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse',
+                                          status === 'In Progress' && 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+                                          status === 'Completed' && 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+                                          status === 'Missed/Expired' && 'bg-red-500/10 text-red-400 border-red-500/20'
+                                        )}>
+                                          {status}
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-400 mt-0.5">
+                                        {sched.subject || 'General Study'} • {sched.category || 'Reviewer'}
+                                      </p>
+                                      {sched.notes && (
+                                        <p className="text-[11px] text-slate-500 mt-2 bg-black/30 p-2 rounded border border-white/5 italic">
+                                          &ldquo;{sched.notes}&rdquo;
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end border-t sm:border-t-0 border-white/5 pt-3 sm:pt-0">
+                                    <span className="text-xs text-slate-400 mr-2">
+                                      {sched.duration ? `${sched.duration} mins` : 'Untimed'}
+                                    </span>
+
+                                    {userRole === 'admin' ? (
+                                      <>
+                                        <button
+                                          onClick={() => handleOpenEditSchedule(sched)}
+                                          className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all border border-transparent"
+                                          title="Edit schedule details"
+                                        >
+                                          <Edit2 className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteSchedule(sched)}
+                                          className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all border border-transparent"
+                                          title="Delete schedule event"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </>
+                                    ) : null}
+
+                                    {status === 'Available' && (
+                                      <button
+                                        onClick={() => {
+                                          if (origQuiz) {
+                                            const customConfig = {
+                                              ...quizConfig,
+                                              timeLimit: (sched.duration || 0) * 60,
+                                            };
+                                            startQuiz(origQuiz, customConfig, sched.id);
+                                          } else {
+                                            showToast('Quiz reviewer missing.', 'error');
+                                          }
+                                        }}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow"
+                                      >
+                                        <Play className="w-3.5 h-3.5" />
+                                        <span>Start Quiz</span>
+                                      </button>
+                                    )}
+
+                                    {status === 'In Progress' && (
+                                      <button
+                                        onClick={() => {
+                                          if (origQuiz) {
+                                            setSelectedQuiz(origQuiz);
+                                            setActiveMode('take');
+                                          } else {
+                                            showToast('Quiz reviewer missing.', 'error');
+                                          }
+                                        }}
+                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow"
+                                      >
+                                        <span>Resume</span>
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* VIEW DETAILS DRAWER/MODAL FOR SCHEDULED QUIZ */}
+            {viewingScheduleDetails && (() => {
+              const status = getScheduledQuizStatus(viewingScheduleDetails);
+              const origQuiz = quizzes.find(q => q.id === viewingScheduleDetails.quizId);
+
+              return (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                  <div className="bg-[#111114] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+                    <button
+                      onClick={() => setViewingScheduleDetails(null)}
+                      className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 hover:bg-white/5 rounded-lg transition-all"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className={cn(
+                        "px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border",
+                        status === 'Upcoming' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                        status === 'Available' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse',
+                        status === 'In Progress' && 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+                        status === 'Completed' && 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+                        status === 'Missed/Expired' && 'bg-red-500/10 text-red-400 border-red-500/20'
+                      )}>
+                        {status}
+                      </span>
+                      <span className="text-xs text-slate-500">Scheduled Quiz Event</span>
+                    </div>
+
+                    <h3 className="text-lg font-black text-white">{viewingScheduleDetails.quizTitle}</h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Subject: <strong className="text-indigo-400">{viewingScheduleDetails.subject || 'General'}</strong> • Category: <strong className="text-slate-200">{viewingScheduleDetails.category || 'Reviewer'}</strong>
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-4 my-5 bg-[#0E0E11] p-4 rounded-xl border border-white/5 text-xs text-slate-300">
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase font-bold block">Date</span>
+                        <span className="font-bold text-white">{viewingScheduleDetails.date}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase font-bold block">Start Time</span>
+                        <span className="font-bold text-white">{viewingScheduleDetails.startTime}</span>
+                      </div>
+                      <div className="mt-2">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold block">Duration limit</span>
+                        <span className="font-bold text-white">{viewingScheduleDetails.duration ? `${viewingScheduleDetails.duration} minutes` : 'No time limit'}</span>
+                      </div>
+                      <div className="mt-2">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold block">Linked Quiz size</span>
+                        <span className="font-bold text-white">{origQuiz ? `${origQuiz.questions.length} questions` : 'N/A'}</span>
+                      </div>
+                    </div>
+
+                    {viewingScheduleDetails.notes && (
+                      <div className="mb-5">
+                        <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Instructions / Notes</span>
+                        <div className="text-xs text-slate-300 italic bg-white/[0.02] border border-white/5 p-3 rounded-lg leading-relaxed">
+                          &ldquo;{viewingScheduleDetails.notes}&rdquo;
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-3 border-t border-white/5 pt-4">
+                      <div>
+                        {userRole === 'admin' && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setViewingScheduleDetails(null);
+                                handleOpenEditSchedule(viewingScheduleDetails);
+                              }}
+                              className="px-3 py-2 border border-white/10 hover:bg-white/5 text-slate-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                handleDeleteSchedule(viewingScheduleDetails);
+                              }}
+                              className="px-3 py-2 border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 text-red-400 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setViewingScheduleDetails(null)}
+                          className="px-4 py-2 border border-white/10 rounded-lg text-xs text-slate-400 hover:text-white transition-all cursor-pointer"
+                        >
+                          Close
+                        </button>
+
+                        {status === 'Available' && (
+                          <button
+                            onClick={() => {
+                              if (origQuiz) {
+                                setViewingScheduleDetails(null);
+                                const customConfig = {
+                                  ...quizConfig,
+                                  timeLimit: (viewingScheduleDetails.duration || 0) * 60,
+                                };
+                                startQuiz(origQuiz, customConfig, viewingScheduleDetails.id);
+                              } else {
+                                showToast('Original quiz reviewer is missing or has been deleted.', 'error');
+                              }
+                            }}
+                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow animate-pulse"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                            <span>Start Quiz</span>
+                          </button>
+                        )}
+
+                        {status === 'In Progress' && (
+                          <button
+                            onClick={() => {
+                              if (origQuiz) {
+                                setViewingScheduleDetails(null);
+                                setSelectedQuiz(origQuiz);
+                                setActiveMode('take');
+                              } else {
+                                showToast('Original quiz reviewer is missing or has been deleted.', 'error');
+                              }
+                            }}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow"
+                          >
+                            <span>Resume</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* SCHEDULE QUIZ MODAL (ADMIN ONLY) */}
+            {showScheduleModal && (
+              <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+                <div className="bg-[#111114] border border-white/10 rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-5 relative my-8">
+                  <button
+                    onClick={() => setShowScheduleModal(false)}
+                    className="absolute top-4 right-4 text-slate-400 hover:text-white p-1 hover:bg-white/5 rounded-lg transition-all cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+
+                  <div>
+                    <h3 className="text-lg font-black text-white">
+                      {editingSchedule ? 'Edit Quiz Schedule Event' : 'Schedule a Board Exam Reviewer'}
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Assign existing mock reviewers to specific calendar dates to enforce structured examination.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-4 text-xs text-slate-300">
+                    {/* STEP 1: Quiz Selection with Search and Filter */}
+                    <div className="border border-white/5 bg-black/20 p-4 rounded-xl flex flex-col gap-3">
+                      <span className="text-[10px] font-black uppercase text-indigo-400 tracking-wider">Step 1: Select Quiz & Filter Catalog</span>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="Search title/subject..."
+                          value={scheduleSearchQuery}
+                          onChange={(e) => setScheduleSearchQuery(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none placeholder-slate-600"
+                        />
+                        <select
+                          value={scheduleFilterSubject}
+                          onChange={(e) => setScheduleFilterSubject(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                        >
+                          <option value="All">All Subjects</option>
+                          {uniqueSchedulingSubjects.map(sub => (
+                            <option key={sub} value={sub}>{sub}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <select
+                          value={scheduleFilterCategory}
+                          onChange={(e) => setScheduleFilterCategory(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                        >
+                          <option value="All">All Categories</option>
+                          {uniqueSchedulingCategories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={scheduleFilterDifficulty}
+                          onChange={(e) => setScheduleFilterDifficulty(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                        >
+                          <option value="All">All Difficulties</option>
+                          <option value="easy">Easy</option>
+                          <option value="medium">Medium</option>
+                          <option value="hard">Hard</option>
+                        </select>
+                      </div>
+
+                      <div className="flex flex-col gap-1 mt-1">
+                        <label className="text-[10px] text-slate-500 uppercase font-bold">Select Quiz Reviewer</label>
+                        <select
+                          value={scheduleQuizId}
+                          onChange={(e) => {
+                            setScheduleQuizId(e.target.value);
+                            const selected = quizzes.find(q => q.id === e.target.value);
+                            if (selected) {
+                              setScheduleSubject(selected.subject || '');
+                              setScheduleCategory(selected.category || '');
+                            }
+                          }}
+                          className="p-2.5 border border-indigo-500/20 bg-[#111114] text-slate-200 rounded-lg font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value="">-- Choose Quiz --</option>
+                          {filteredQuizzesForScheduling.map(quiz => (
+                            <option key={quiz.id} value={quiz.id}>
+                              {quiz.title} ({quiz.questions.length} Qs) {quiz.subject ? `[${quiz.subject}]` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* STEP 2: Date and Time Schedule Parameters */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-slate-500 uppercase font-bold">Schedule Date</label>
+                        <input
+                          type="date"
+                          value={scheduleDate}
+                          onChange={(e) => setScheduleDate(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                          required
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-slate-500 uppercase font-bold">Start Time</label>
+                        <input
+                          type="time"
+                          value={scheduleTime}
+                          onChange={(e) => setScheduleTime(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                          required
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-slate-500 uppercase font-bold">Duration (Minutes)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="360"
+                          value={scheduleDuration}
+                          onChange={(e) => setScheduleDuration(Number(e.target.value))}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Overrides */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-slate-500 uppercase font-bold">Subject Override</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Electrical Engineering"
+                          value={scheduleSubject}
+                          onChange={(e) => setScheduleSubject(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] text-slate-500 uppercase font-bold">Category Override</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. NSCP Part 1"
+                          value={scheduleCategory}
+                          onChange={(e) => setScheduleCategory(e.target.value)}
+                          className="p-2 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* NOTES */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] text-slate-500 uppercase font-bold">Candidate Instructions / Notes (Optional)</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Instructions for taking this mock exam..."
+                        value={scheduleNotes}
+                        onChange={(e) => setScheduleNotes(e.target.value)}
+                        className="p-2.5 border border-white/10 rounded-lg bg-[#111114] text-slate-200 text-xs focus:outline-none resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 border-t border-white/5 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setShowScheduleModal(false)}
+                      className="px-4 py-2 border border-white/10 hover:bg-white/5 text-slate-400 hover:text-slate-200 rounded-xl transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveSchedule}
+                      disabled={!scheduleQuizId}
+                      className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800/40 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all shadow-md cursor-pointer"
+                    >
+                      {editingSchedule ? 'Update Schedule' : 'Schedule Exam'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* MODE 2: QUIZ LIBRARY VIEW */}
             {activeMode === 'list' && (
               <div className="flex flex-col gap-6">
-                
+
                 {/* Hero Greeting and Quick Action Banner */}
                 <div className="relative overflow-hidden bg-gradient-to-r from-slate-900/60 via-[#111115] to-[#111115] border border-white/[0.06] rounded-2xl p-6 sm:p-7 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-xl">
                   {/* Subtle background glow */}
@@ -2110,13 +3215,173 @@ export default function ElectricalReviewPro() {
                     </p>
                   </div>
 
-                  <button
-                    onClick={() => setActiveMode('extract')}
-                    className="relative z-10 flex-shrink-0 flex items-center gap-2 px-4.5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all hover:scale-[1.02] shadow-[0_8px_30px_rgb(99,102,241,0.25)] active:scale-[0.98] w-full md:w-auto justify-center cursor-pointer min-h-[44px]"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Upload & Generate Exam</span>
-                  </button>
+                  {userRole === 'admin' && (
+                    <button
+                      onClick={() => setActiveMode('extract')}
+                      className="relative z-10 flex-shrink-0 flex items-center gap-2 px-4.5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all hover:scale-[1.02] shadow-[0_8px_30px_rgb(99,102,241,0.25)] active:scale-[0.98] w-full md:w-auto justify-center cursor-pointer min-h-[44px]"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Upload & Generate Exam</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* UPCOMING & SCHEDULED EXAMS SUMMARY PANEL (Ties with Requirement 5) */}
+                <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col gap-4">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-white">Upcoming & Scheduled Exams</h3>
+                        <p className="text-[11px] text-slate-400">Track and take scheduled tests according to your reviewer timeline</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveMode('calendar')}
+                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>Open Calendar</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {scheduledQuizzes.length === 0 ? (
+                    <div className="text-center py-6 px-4 bg-white/[0.01] border border-dashed border-white/5 rounded-xl flex flex-col items-center gap-2">
+                      <Calendar className="w-8 h-8 text-slate-600 stroke-[1.5]" />
+                      <p className="text-xs text-slate-400 font-medium">No quiz schedules created yet.</p>
+                      <p className="text-[11px] text-slate-500 max-w-sm">
+                        Create timed exam schedules in the Reviewer Calendar to enforce study discipline and track mock-exam history.
+                      </p>
+                      {userRole === 'admin' ? (
+                        <button
+                          onClick={() => setActiveMode('calendar')}
+                          className="mt-1 px-3 py-1.5 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 font-bold text-xs rounded-lg border border-indigo-500/30 transition-all cursor-pointer"
+                        >
+                          Schedule Your First Quiz
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 bg-white/5 px-2 py-1 rounded-md border border-white/5 mt-1">
+                          No schedules assigned by administrator yet.
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {scheduledQuizzes.slice(0, 4).map(schedule => {
+                        const status = getScheduledQuizStatus(schedule);
+                        const origQuiz = quizzes.find(q => q.id === schedule.quizId);
+
+                        return (
+                          <div
+                            key={schedule.id}
+                            className={cn(
+                              "relative border rounded-xl p-4 transition-all flex flex-col justify-between gap-4 overflow-hidden text-left",
+                              status === 'Available' ? 'bg-emerald-500/[0.03] border-emerald-500/20 shadow-emerald-950/20 shadow-lg' :
+                              status === 'In Progress' ? 'bg-indigo-500/[0.03] border-indigo-500/20 shadow-lg' :
+                              status === 'Completed' ? 'bg-slate-500/[0.01] border-white/5 opacity-80' :
+                              status === 'Missed/Expired' ? 'bg-red-500/[0.01] border-red-500/10' :
+                              'bg-[#131317] border-white/5 hover:border-white/10'
+                            )}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border",
+                                  status === 'Upcoming' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                  status === 'Available' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse',
+                                  status === 'In Progress' && 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+                                  status === 'Completed' && 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+                                  status === 'Missed/Expired' && 'bg-red-500/10 text-red-400 border-red-500/20'
+                                )}>
+                                  {status}
+                                </span>
+
+                                <span className="text-[10px] text-slate-500 font-mono">
+                                  {schedule.date} @ {schedule.startTime}
+                                </span>
+                              </div>
+
+                              <h4 className="text-xs font-bold text-white line-clamp-1">{schedule.quizTitle}</h4>
+                              <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
+                                {schedule.subject || 'General Study'} • {schedule.category || 'Reviewer'}
+                              </p>
+
+                              {schedule.notes && (
+                                <p className="text-[10px] text-slate-500 mt-2 bg-black/20 p-1.5 rounded border border-white/5 italic">
+                                  &ldquo;{schedule.notes}&rdquo;
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-white/5">
+                              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-slate-500" />
+                                <span>{schedule.duration ? `${schedule.duration} min timer` : 'No time limit'}</span>
+                              </span>
+
+                              {status === 'Available' && (
+                                <button
+                                  onClick={() => {
+                                    if (origQuiz) {
+                                      const customConfig = {
+                                        ...quizConfig,
+                                        timeLimit: (schedule.duration || 0) * 60,
+                                      };
+                                      startQuiz(origQuiz, customConfig, schedule.id);
+                                    } else {
+                                      showToast('Underlying quiz reviewer is missing or deleted.', 'error');
+                                    }
+                                  }}
+                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] rounded-lg transition-all shadow shadow-emerald-950/40 cursor-pointer flex items-center gap-1 animate-pulse"
+                                >
+                                  <Play className="w-2.5 h-2.5" />
+                                  <span>Start Quiz</span>
+                                </button>
+                              )}
+
+                              {status === 'In Progress' && (
+                                <button
+                                  onClick={() => {
+                                    if (origQuiz) {
+                                      setSelectedQuiz(origQuiz);
+                                      setActiveMode('take');
+                                    } else {
+                                      showToast('Underlying quiz reviewer is missing or deleted.', 'error');
+                                    }
+                                  }}
+                                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] rounded-lg transition-all shadow cursor-pointer flex items-center gap-1"
+                                >
+                                  <span>Resume</span>
+                                  <ChevronRight className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+
+                              {status === 'Completed' && (
+                                <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>Completed</span>
+                                </span>
+                              )}
+
+                              {status === 'Upcoming' && (
+                                <span className="text-[10px] text-slate-500 font-medium">
+                                  Starts soon
+                                </span>
+                              )}
+
+                              {status === 'Missed/Expired' && (
+                                <span className="text-[10px] text-red-400/80 font-medium italic">
+                                  Missed window
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Search / Filter / Sort Bar */}
@@ -3792,6 +5057,12 @@ export default function ElectricalReviewPro() {
                                     <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-300 text-[10px] font-black uppercase rounded-md border border-indigo-500/20">
                                       {details.subject}
                                     </span>
+                                    {att.scheduledQuizId && (
+                                      <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase rounded-md border border-emerald-500/20 flex items-center gap-1">
+                                        <Calendar className="w-3 h-3 text-emerald-400" />
+                                        <span>Scheduled Exam</span>
+                                      </span>
+                                    )}
                                     <span className="text-xs text-slate-500 flex items-center gap-1">
                                       <Calendar className="w-3.5 h-3.5" />
                                       <span>{formatDateTime(att.completedAt)}</span>

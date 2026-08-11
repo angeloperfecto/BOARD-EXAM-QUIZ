@@ -57,6 +57,19 @@ export interface QuizAttempt {
   startedAt: string;
   activeQuestions?: Question[]; // Preserved randomized order and choices
   timeLimit?: number; // Time limit in seconds, 0 or undefined for no limit
+  scheduledQuizId?: string | null; // References the calendar schedule id if started from a schedule
+}
+
+export interface ScheduledQuiz {
+  id: string;
+  quizId: string; // References original quiz id
+  quizTitle: string; // Cached title
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:MM
+  duration: number; // Duration in minutes. 0 means no limit.
+  subject?: string | null;
+  category?: string | null;
+  notes?: string | null;
 }
 
 export interface ExtractionLog {
