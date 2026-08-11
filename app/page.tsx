@@ -222,6 +222,49 @@ export default function ElectricalReviewPro() {
   const [checkedQuestions, setCheckedQuestions] = useState<Record<string, boolean>>({});
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
 
+  // Custom dialogs/notifications to replace iframe-blocked alert, confirm, and prompt
+  const [customToast, setCustomToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
+
+  const [publishErrors, setPublishErrors] = useState<{
+    quizTitle: string;
+    errors: string[];
+  } | null>(null);
+
+  const [resumeQuizConfirm, setResumeQuizConfirm] = useState<{
+    quiz: Quiz;
+    attempt: QuizAttempt;
+  } | null>(null);
+
+  const [questionToDelete, setQuestionToDelete] = useState<{
+    questionId: string;
+  } | null>(null);
+
+  const [showClearHistoryConfirm, setShowClearHistoryConfirm] = useState<boolean>(false);
+
+  const [mergeQuizPrompt, setMergeQuizPrompt] = useState<{
+    show: boolean;
+    defaultValue: string;
+  } | null>(null);
+  
+  const [mergeQuizInputTitle, setMergeQuizInputTitle] = useState<string>('');
+
+  const [showEditQuizModal, setShowEditQuizModal] = useState<Quiz | null>(null);
+  const [editQuizTitle, setEditQuizTitle] = useState<string>('');
+  const [editQuizDescription, setEditQuizDescription] = useState<string>('');
+  const [editQuizSubject, setEditQuizSubject] = useState<string>('');
+  const [editQuizCategory, setEditQuizCategory] = useState<string>('');
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setCustomToast({ message, type });
+    // Keep it readable but auto-dismiss
+    setTimeout(() => {
+      setCustomToast(prev => prev && prev.message === message ? null : prev);
+    }, 4500);
+  };
+
   // Timer logic for active quiz
   useEffect(() => {
     if (activeMode !== 'take' || !quizAttempt || quizAttempt.status !== 'in_progress' || !quizAttempt.timeLimit) {
@@ -804,7 +847,7 @@ export default function ElectricalReviewPro() {
 
       const extension = file.name.split('.').pop()?.toLowerCase();
       if (extension !== 'pdf' && extension !== 'docx') {
-        alert(`Unsupported file format: ${file.name}. Please upload .pdf or .docx files only.`);
+        showToast(`Unsupported file format: ${file.name}. Please upload .pdf or .docx files only.`, 'error');
         continue;
       }
 
@@ -955,7 +998,7 @@ export default function ElectricalReviewPro() {
   // Electrical Review Pro Caller
   const generateQuizFromFiles = async () => {
     if (uploadedFiles.length === 0) {
-      alert('Please upload at least one PDF or Word document first.');
+      showToast('Please upload at least one PDF or Word document first.', 'error');
       return;
     }
 
@@ -1055,11 +1098,11 @@ export default function ElectricalReviewPro() {
       // Update logs count
       setExtractionLogs(prev => prev.map(l => ({ ...l, questionsFound: processedQuestions.length })));
       
-      alert(`Success! Successfully extracted ${processedQuestions.length} questions. Let's review them now!`);
+      showToast(`Success! Successfully extracted ${processedQuestions.length} questions. Let's review them now!`, 'success');
       setActiveMode('edit'); // Jump directly to Question Manager to review and edit
     } catch (err: any) {
       console.error('Quiz Generation Error:', err);
-      alert(`Generation failed: ${err.message || err}. Please try again or provide smaller text portions.`);
+      showToast(`Generation failed: ${err.message || err}. Please try again or provide smaller text portions.`, 'error');
     } finally {
       setIsGenerating(false);
       setParsingStatus('');
@@ -1267,36 +1310,39 @@ export default function ElectricalReviewPro() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed.status === 'in_progress') {
-          if (confirm('You have an unfinished attempt for this quiz. Would you like to resume?')) {
-            setSelectedQuiz(quiz);
-            setUserAnswers(parsed.answers);
-            
-            // Re-populate checked questions for the resumed quiz
-            const initialChecked: Record<string, boolean> = {};
-            if (parsed.answers) {
-              Object.keys(parsed.answers).forEach(qid => {
-                initialChecked[qid] = true;
-              });
-            }
-            setCheckedQuestions(initialChecked);
-
-            if (parsed.activeQuestions && parsed.activeQuestions.length > 0) {
-              setActiveQuestions(parsed.activeQuestions);
-            } else {
-              setActiveQuestions(quiz.questions);
-            }
-
-            setQuizAttempt(parsed);
-            setShowResults(false);
-            setActiveMode('take');
-            return;
-          }
+          setResumeQuizConfirm({ quiz, attempt: parsed });
+          return;
         }
       } catch (e) {
         console.error(e);
       }
     }
     setShowQuizSetupModal(quiz);
+  };
+
+  const handleResumeQuizAttempt = (quiz: Quiz, attempt: QuizAttempt) => {
+    setSelectedQuiz(quiz);
+    setUserAnswers(attempt.answers || {});
+    
+    // Re-populate checked questions for the resumed quiz
+    const initialChecked: Record<string, boolean> = {};
+    if (attempt.answers) {
+      Object.keys(attempt.answers).forEach(qid => {
+        initialChecked[qid] = true;
+      });
+    }
+    setCheckedQuestions(initialChecked);
+
+    if (attempt.activeQuestions && attempt.activeQuestions.length > 0) {
+      setActiveQuestions(attempt.activeQuestions);
+    } else {
+      setActiveQuestions(quiz.questions);
+    }
+
+    setQuizAttempt(attempt);
+    setShowResults(false);
+    setActiveMode('take');
+    setResumeQuizConfirm(null);
   };
 
   // Question Editor updates
@@ -1313,15 +1359,61 @@ export default function ElectricalReviewPro() {
   };
 
   const handleDeleteQuestion = (questionId: string) => {
-    if (!selectedQuiz) return;
-    if (!confirm('Are you sure you want to delete this question?')) return;
+    setQuestionToDelete({ questionId });
+  };
 
+  const handleConfirmDeleteQuestion = () => {
+    if (!selectedQuiz || !questionToDelete) return;
+    const { questionId } = questionToDelete;
     const updatedQuestions = selectedQuiz.questions.filter(q => q.id !== questionId);
     const updatedQuiz = { ...selectedQuiz, questions: updatedQuestions };
 
     const updatedQuizzes = quizzes.map(q => q.id === selectedQuiz.id ? updatedQuiz : q);
     saveQuizzesToStorage(updatedQuizzes);
     setSelectedQuiz(updatedQuiz);
+    setQuestionToDelete(null);
+    showToast('Question deleted successfully.', 'success');
+  };
+
+  const handleConfirmClearHistory = () => {
+    saveAttemptsToStorage([]);
+    setSelectedAttemptId(null);
+    setShowClearHistoryConfirm(false);
+    showToast('Your quiz history has been reset.', 'success');
+  };
+
+  const handleOpenEditQuizModal = (quiz: Quiz) => {
+    setShowEditQuizModal(quiz);
+    setEditQuizTitle(quiz.title || '');
+    setEditQuizDescription(quiz.description || '');
+    setEditQuizSubject(quiz.subject || '');
+    setEditQuizCategory(quiz.category || '');
+  };
+
+  const handleSaveQuizDetails = () => {
+    if (!showEditQuizModal) return;
+    if (!editQuizTitle.trim()) {
+      showToast('Quiz title cannot be empty.', 'error');
+      return;
+    }
+
+    const updatedQuiz = {
+      ...showEditQuizModal,
+      title: editQuizTitle.trim(),
+      description: editQuizDescription.trim() || null,
+      subject: editQuizSubject.trim() || null,
+      category: editQuizCategory.trim() || null,
+    };
+
+    const updatedQuizzes = quizzes.map(q => q.id === showEditQuizModal.id ? updatedQuiz : q);
+    saveQuizzesToStorage(updatedQuizzes);
+    
+    if (selectedQuiz?.id === showEditQuizModal.id) {
+      setSelectedQuiz(updatedQuiz);
+    }
+    
+    setShowEditQuizModal(null);
+    showToast('Quiz details updated successfully.', 'success');
   };
 
   const handleCreateQuestion = (newQ: Omit<Question, 'id'>) => {
@@ -1365,7 +1457,7 @@ export default function ElectricalReviewPro() {
       const updatedQuizzes = quizzes.map(q => q.id === quizId ? { ...q, isPublished: false } : q);
       saveQuizzesToStorage(updatedQuizzes);
       setSelectedQuiz(prev => prev && prev.id === quizId ? { ...prev, isPublished: false } : prev);
-      alert('Quiz unpublished successfully! It is now a draft review.');
+      showToast('Quiz unpublished successfully! It is now a draft review.', 'info');
       return;
     }
 
@@ -1392,25 +1484,33 @@ export default function ElectricalReviewPro() {
     });
 
     if (errors.length > 0) {
-      alert(`Cannot publish. Correct the following extraction or configuration gaps:\n- ${errors.slice(0, 5).join('\n- ')}${errors.length > 5 ? '\n...and more' : ''}`);
+      setPublishErrors({
+        quizTitle: quiz.title,
+        errors
+      });
       return;
     }
 
     const updatedQuizzes = quizzes.map(q => q.id === quizId ? { ...q, isPublished: true } : q);
     saveQuizzesToStorage(updatedQuizzes);
     setSelectedQuiz(prev => prev && prev.id === quizId ? { ...prev, isPublished: true } : prev);
-    alert('Quiz published successfully! It is now fully active for users.');
+    showToast('Quiz published successfully! It is now fully active for users.', 'success');
   };
 
-  // Merge multiple quizzes into a single reviewer
-  const mergeQuizzes = () => {
+  const handleMergeQuizzesClick = () => {
     if (quizzes.length < 2) {
-      alert('You need at least two quizzes to merge.');
+      showToast('You need at least two quizzes to merge.', 'error');
       return;
     }
+    setMergeQuizInputTitle('Merged Exam Reviewer');
+    setMergeQuizPrompt({ show: true, defaultValue: 'Merged Exam Reviewer' });
+  };
 
-    const title = prompt('Enter a title for the merged Exam Reviewer:');
-    if (!title) return;
+  const handleConfirmMergeQuizzes = (title: string) => {
+    if (!title || !title.trim()) {
+      showToast('Please enter a valid title for the merged quiz.', 'error');
+      return;
+    }
 
     const mergedQuestions: Question[] = [];
     const sourceFiles: string[] = [];
@@ -1420,7 +1520,7 @@ export default function ElectricalReviewPro() {
       q.questions.forEach((question, idx) => {
         mergedQuestions.push({
           ...question,
-          id: `merged-q-${Date.now()}-${idx}`,
+          id: `merged-q-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
           number: `${mergedQuestions.length + 1}`
         });
       });
@@ -1434,7 +1534,7 @@ export default function ElectricalReviewPro() {
 
     const mergedQuiz: Quiz = {
       id: `quiz-merged-${Date.now()}`,
-      title,
+      title: title.trim(),
       description: `Merged compilation exam from: ${quizzes.map(q => q.title).join(', ')}`,
       questions: mergedQuestions,
       createdAt: new Date().toISOString(),
@@ -1444,9 +1544,11 @@ export default function ElectricalReviewPro() {
       isPublished: false
     };
 
-    saveQuizzesToStorage([mergedQuiz, ...quizzes]);
+    const updatedQuizzes = [mergedQuiz, ...quizzes];
+    saveQuizzesToStorage(updatedQuizzes);
     setSelectedQuiz(mergedQuiz);
-    alert(`Successfully merged all quizzes! Created "${title}" with ${mergedQuestions.length} total questions.`);
+    setMergeQuizPrompt(null);
+    showToast(`Successfully merged all quizzes! Created "${title.trim()}" with ${mergedQuestions.length} total questions.`, 'success');
   };
 
   return (
@@ -1704,7 +1806,7 @@ export default function ElectricalReviewPro() {
                   </button>
 
                   <button
-                    onClick={mergeQuizzes}
+                    onClick={handleMergeQuizzesClick}
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-indigo-400 hover:bg-indigo-500/10 hover:text-white transition-all text-left cursor-pointer border border-transparent hover:border-indigo-500/20"
                   >
                     <Layers className="w-4 h-4 text-indigo-400 flex-shrink-0" />
@@ -2219,6 +2321,15 @@ export default function ElectricalReviewPro() {
                                 title="Delete Quiz"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Edit Quiz Details Access */}
+                              <button
+                                onClick={() => handleOpenEditQuizModal(quiz)}
+                                className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent hover:border-indigo-500/20"
+                                title="Edit Quiz Details / Rename"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
                               </button>
 
                               {/* Question Manager / Admin Panel Access */}
@@ -2842,7 +2953,16 @@ export default function ElectricalReviewPro() {
                         Admin Review Workspace
                       </span>
                     </div>
-                    <h2 className="text-base font-bold text-white mt-1">{selectedQuiz.title}</h2>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <h2 className="text-base font-bold text-white">{selectedQuiz.title}</h2>
+                      <button
+                        onClick={() => handleOpenEditQuizModal(selectedQuiz)}
+                        className="p-1 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent"
+                        title="Edit Quiz Details / Rename"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -3573,12 +3693,7 @@ export default function ElectricalReviewPro() {
                         
                         {attempts.length > 0 && (
                           <button
-                            onClick={() => {
-                              if (confirm("Are you sure you want to completely clear your local quiz history? This cannot be undone.")) {
-                                saveAttemptsToStorage([]);
-                                setSelectedAttemptId(null);
-                              }
-                            }}
+                            onClick={() => setShowClearHistoryConfirm(true)}
                             className="px-3 py-1.5 border border-red-500/20 bg-red-500/5 hover:bg-red-500/10 text-red-400 text-[10px] font-black uppercase rounded-lg transition-all cursor-pointer"
                           >
                             Reset History
@@ -3978,6 +4093,356 @@ export default function ElectricalReviewPro() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Custom Toast Notification */}
+      <AnimatePresence>
+        {customToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl max-w-sm backdrop-blur-md"
+            style={{
+              backgroundColor:
+                customToast.type === 'success'
+                  ? 'rgba(16, 185, 129, 0.15)'
+                  : customToast.type === 'error'
+                  ? 'rgba(239, 68, 68, 0.15)'
+                  : 'rgba(59, 130, 246, 0.15)',
+              borderColor:
+                customToast.type === 'success'
+                  ? 'rgba(16, 185, 129, 0.3)'
+                  : customToast.type === 'error'
+                  ? 'rgba(239, 68, 68, 0.3)'
+                  : 'rgba(59, 130, 246, 0.3)',
+              color:
+                customToast.type === 'success'
+                  ? '#34d399'
+                  : customToast.type === 'error'
+                  ? '#f87171'
+                  : '#60a5fa',
+            }}
+          >
+            {customToast.type === 'success' && <CheckCircle className="w-5 h-5 flex-shrink-0" />}
+            {customToast.type === 'error' && <AlertCircle className="w-5 h-5 flex-shrink-0" />}
+            {customToast.type === 'info' && <ShieldCheck className="w-5 h-5 flex-shrink-0" />}
+            <span className="text-xs font-bold text-white">{customToast.message}</span>
+            <button
+              onClick={() => setCustomToast(null)}
+              className="ml-2 hover:opacity-80 transition-all text-white/60 hover:text-white"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Publish Errors Modal */}
+      {publishErrors && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#111114] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-4"
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20 flex-shrink-0">
+                <AlertCircle className="w-6 h-6 animate-pulse" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-md font-bold text-white">Cannot Publish Quiz</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  The quiz <strong className="text-white">&ldquo;{publishErrors.quizTitle}&rdquo;</strong> is incomplete. Please correct the following extraction gaps before publishing:
+                </p>
+              </div>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto bg-black/30 border border-white/5 rounded-xl p-4 flex flex-col gap-2.5 text-xs text-slate-300">
+              {publishErrors.errors.map((err, idx) => (
+                <div key={idx} className="flex gap-2">
+                  <span className="text-amber-400/80 font-bold flex-shrink-0">•</span>
+                  <span>{err}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => setPublishErrors(null)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-md cursor-pointer transition-all"
+              >
+                Let&apos;s Fix It
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Unfinished Quiz Resume Confirmation Modal */}
+      {resumeQuizConfirm && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#111114] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-5"
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 flex-shrink-0">
+                <Clock className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-md font-bold text-white">Resume Incomplete Quiz?</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  You have an unfinished attempt for <strong className="text-white">&ldquo;{resumeQuizConfirm.quiz.title}&rdquo;</strong> from {new Date(resumeQuizConfirm.attempt.startedAt).toLocaleDateString()}. Would you like to resume your progress or start fresh?
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setResumeQuizConfirm(null);
+                  setShowQuizSetupModal(resumeQuizConfirm.quiz);
+                }}
+                className="px-4 py-2 border border-white/10 rounded-xl hover:bg-white/10 text-slate-300 font-semibold cursor-pointer"
+              >
+                Start Fresh
+              </button>
+              <button
+                type="button"
+                onClick={() => handleResumeQuizAttempt(resumeQuizConfirm.quiz, resumeQuizConfirm.attempt)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-md cursor-pointer transition-all"
+              >
+                Resume Progress
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Delete Question Confirmation Modal */}
+      {questionToDelete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#111114] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-5"
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 flex-shrink-0">
+                <Trash2 className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-md font-bold text-white">Delete Question</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Are you sure you want to delete this question? This action will permanently remove it from the quiz, and it cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => setQuestionToDelete(null)}
+                className="px-4 py-2 border border-white/10 rounded-xl hover:bg-white/10 text-slate-300 font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteQuestion}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl shadow-md cursor-pointer transition-all"
+              >
+                Delete Question
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Clear History Confirmation Modal */}
+      {showClearHistoryConfirm && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#111114] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-5"
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 flex-shrink-0">
+                <AlertCircle className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-md font-bold text-white">Reset Quiz History</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Are you sure you want to completely clear your local quiz attempt history? All past scores, completed times, and progress stats will be permanently deleted. This cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => setShowClearHistoryConfirm(false)}
+                className="px-4 py-2 border border-white/10 rounded-xl hover:bg-white/10 text-slate-300 font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmClearHistory}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl shadow-md cursor-pointer transition-all"
+              >
+                Reset History
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Merge Quiz Name Prompt Modal */}
+      {mergeQuizPrompt && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#111114] border border-white/10 rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col gap-5"
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 flex-shrink-0">
+                <Layers className="w-6 h-6" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-md font-bold text-white">Merge All Quizzes</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Combine all currently loaded review questionnaires into a single comprehensive reviewer.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Merged Reviewer Title</label>
+              <input
+                type="text"
+                value={mergeQuizInputTitle}
+                onChange={(e) => setMergeQuizInputTitle(e.target.value)}
+                placeholder="e.g. Master Board Reviewer"
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => setMergeQuizPrompt(null)}
+                className="px-4 py-2 border border-white/10 rounded-xl hover:bg-white/10 text-slate-300 font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirmMergeQuizzes(mergeQuizInputTitle)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-md cursor-pointer transition-all"
+              >
+                Merge Quizzes
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Edit Quiz Details Modal */}
+      {showEditQuizModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#111114] border border-white/10 rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-5"
+          >
+            <div className="flex items-start gap-3 border-b border-white/10 pb-4">
+              <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20 flex-shrink-0">
+                <Edit2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-md font-bold text-white">Edit Quiz Details</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Update metadata, subject, or description for <span className="text-white font-bold">{showEditQuizModal.title}</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
+              {/* Quiz Title */}
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Quiz Title *</label>
+                <input
+                  type="text"
+                  value={editQuizTitle}
+                  onChange={(e) => setEditQuizTitle(e.target.value)}
+                  placeholder="e.g. Electrical Engineering Reviewer"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                />
+              </div>
+
+              {/* Subject */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Subject</label>
+                  <input
+                    type="text"
+                    value={editQuizSubject}
+                    onChange={(e) => setEditQuizSubject(e.target.value)}
+                    placeholder="e.g. Electrical Engineering"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Category</label>
+                  <input
+                    type="text"
+                    value={editQuizCategory}
+                    onChange={(e) => setEditQuizCategory(e.target.value)}
+                    placeholder="e.g. Power Systems"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600"
+                  />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Description</label>
+                <textarea
+                  value={editQuizDescription}
+                  onChange={(e) => setEditQuizDescription(e.target.value)}
+                  placeholder="Provide brief details about this reviewer..."
+                  rows={4}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 placeholder-slate-600 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => setShowEditQuizModal(null)}
+                className="px-4 py-2 border border-white/10 rounded-xl hover:bg-white/10 text-slate-300 font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveQuizDetails}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-md cursor-pointer transition-all"
+              >
+                Save Details
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Delete Quiz Confirmation Dialog */}
       {quizToDelete && (
