@@ -179,6 +179,7 @@ export default function ElectricalReviewPro() {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
   const [activeMode, setActiveMode] = useState<'list' | 'take' | 'edit' | 'extract' | 'history' | 'calendar'>('list');
+  const [libraryTab, setLibraryTab] = useState<'dashboard' | 'quizzes'>('dashboard');
   
   // User Role Configuration (Admin vs Member)
   const [userRole, setUserRole] = useState<'admin' | 'member'>(() => {
@@ -858,6 +859,64 @@ export default function ElectricalReviewPro() {
       totalQuestions
     };
   }, [attempts]);
+
+  // Comprehensive Academic Dashboard and Progress Analytics
+  const dashboardStats = useMemo(() => {
+    const completedAttempts = attempts.filter(a => a.status === 'completed');
+    const totalQuizzes = quizzes.length;
+    const totalQuestions = quizzes.reduce((acc, q) => acc + q.questions.length, 0);
+    const averageScore = analyticsSummary.averagePercent;
+    
+    // Sort recent completions
+    const recentResults = [...completedAttempts]
+      .sort((a, b) => new Date(b.completedAt || b.startedAt).getTime() - new Date(a.completedAt || a.startedAt).getTime())
+      .slice(0, 5);
+
+    // Compute progress by subject
+    const subjectsMap: Record<string, { totalScore: number; count: number }> = {};
+    completedAttempts.forEach(att => {
+      const q = quizzes.find(quiz => quiz.id === att.quizId);
+      const subject = q?.subject || 'General Review';
+      const scorePercent = Math.round((att.score / att.totalQuestions) * 100);
+      
+      if (!subjectsMap[subject]) {
+        subjectsMap[subject] = { totalScore: 0, count: 0 };
+      }
+      subjectsMap[subject].totalScore += scorePercent;
+      subjectsMap[subject].count += 1;
+    });
+
+    const subjectProgress = Object.entries(subjectsMap).map(([name, data]) => ({
+      name,
+      avgScore: Math.round(data.totalScore / data.count),
+      attemptsCount: data.count
+    }));
+
+    // Generate Recommended quizzes (uncompleted first, then lower-scored ones)
+    const recommendedQuizzes = quizzes
+      .map(q => {
+        const qAttempts = completedAttempts.filter(a => a.quizId === q.id);
+        const bestScore = qAttempts.length > 0 ? Math.max(...qAttempts.map(a => Math.round((a.score / a.totalQuestions) * 100))) : null;
+        return {
+          quiz: q,
+          bestScore,
+          priority: bestScore === null ? 3 : bestScore < 75 ? 2 : 1
+        };
+      })
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, 3)
+      .map(item => item.quiz);
+
+    return {
+      totalQuestions,
+      totalQuizzes,
+      completedQuizzesCount: completedAttempts.length,
+      averageScore,
+      recentResults,
+      subjectProgress,
+      recommendedQuizzes
+    };
+  }, [quizzes, attempts, analyticsSummary]);
 
   // Gamification badges check
   const unlockedBadges = useMemo(() => {
@@ -1817,8 +1876,8 @@ export default function ElectricalReviewPro() {
   return (
     <div id="app-root" className="min-h-screen bg-[#0A0A0B] text-slate-300 flex flex-col font-sans selection:bg-indigo-900/40 antialiased">
       {/* Visual Identity Header */}
-      <header id="app-header" className="bg-[#0D0D10]/80 backdrop-blur-md border-b border-white/5 sticky top-0 z-40 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <header id="app-header" className="bg-[#0D0D10]/80 backdrop-blur-md border-b border-b-white/5 sticky top-0 z-40 shadow-[0_4px_20px_rgba(0,0,0,0.3)]">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-12 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-indigo-600 rounded-lg text-white">
               <Sparkles className="w-5 h-5 animate-pulse" />
@@ -1898,7 +1957,7 @@ export default function ElectricalReviewPro() {
       </header>
 
       {/* Main Container */}
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+      <main className="flex-grow max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-12 py-8 flex flex-col gap-8">
         {/* Dynamic status indicators */}
         <AnimatePresence>
           {isUploading || isGenerating ? (
@@ -2071,8 +2130,53 @@ export default function ElectricalReviewPro() {
         {/* Dashboard Workstation Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
           
-          {/* Navigation Sidebar & Upload Workspace (4 cols) - Pushed to bottom on mobile, side-sticky on desktop */}
-          <div className="lg:col-span-4 flex flex-col gap-6 order-last lg:order-first">
+          {/* Navigation Sidebar & Upload Workspace (3 cols) - Pushed to bottom on mobile, side-sticky on desktop */}
+          {(activeMode !== 'take' && activeMode !== 'edit') && (
+            <div className="lg:col-span-3 flex flex-col gap-6 order-last lg:order-first">
+              
+              {/* Account and Role Information */}
+              <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-5 shadow-xl flex flex-col gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white text-xs font-black shadow-lg">
+                    AP
+                  </div>
+                  <div className="min-w-0 flex-grow">
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider block">Member Account</span>
+                    <span className="text-xs font-bold text-white block truncate" title="angeloperfecto.epc@gmail.com">
+                      angeloperfecto.epc@gmail.com
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="bg-white/[0.02] border border-white/5 p-3 rounded-xl flex flex-col gap-1.5 text-xs text-slate-400">
+                  <div className="flex items-center justify-between">
+                    <span>Role Level:</span>
+                    <span className="font-extrabold uppercase text-indigo-300 text-[10px] px-1.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded">
+                      {userRole}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>System Status:</span>
+                    <span className="font-extrabold text-emerald-400 flex items-center gap-1 text-[10px]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Online
+                    </span>
+                  </div>
+                </div>
+
+                {/* System Notifications / Announcements Board */}
+                <div className="border-t border-white/5 pt-3 mt-1">
+                  <span className="text-[9px] uppercase tracking-wider text-slate-500 font-extrabold flex items-center gap-1.5 mb-2">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Announcements & Tips</span>
+                  </span>
+                  
+                  <div className="bg-[#0e0e11] border border-white/5 p-3 rounded-xl text-[11px] leading-relaxed text-slate-400 flex flex-col gap-2">
+                    <p className="font-semibold text-white text-xs">⚡ Reviewer Guidelines</p>
+                    <p className="text-[10px] text-slate-400 leading-normal">New structural engineering concepts, formulas on reinforced concrete, and load computations are now live. Run the exam scheduler to practice!</p>
+                  </div>
+                </div>
+              </div>
             
             {/* Quick Stats Panel / Action Cards (Visible only on desktop as mobile has top tabs) */}
             <div className="hidden lg:block bg-[#111115] border border-white/[0.06] rounded-2xl p-5 shadow-xl transition-all">
@@ -2288,10 +2392,14 @@ export default function ElectricalReviewPro() {
                 </AnimatePresence>
               </div>
             )}
-          </div>
+            </div>
+          )}
 
-          {/* Core Interactive Board / Playground (8 cols) - Appears first on mobile */}
-          <div className="lg:col-span-8 order-first lg:order-last">
+          {/* Core Interactive Board / Playground - Dynamic 9 cols or full 12 cols depending on active mode */}
+          <div className={cn(
+            "order-first lg:order-last flex flex-col gap-6",
+            (activeMode !== 'take' && activeMode !== 'edit') ? "lg:col-span-9 animate-fade-in" : "lg:col-span-12 animate-fade-in"
+          )}>
             
             {/* MODE 1: UPLOAD & GENERATOR SETTINGS */}
             {activeMode === 'extract' && (
@@ -2835,6 +2943,26 @@ export default function ElectricalReviewPro() {
                                       </button>
                                     )}
 
+                                    {status !== 'Available' && status !== 'In Progress' && (
+                                      <button
+                                        onClick={() => {
+                                          if (origQuiz) {
+                                            const customConfig = {
+                                              ...quizConfig,
+                                              timeLimit: (sched.duration || 0) * 60,
+                                            };
+                                            startQuiz(origQuiz, customConfig, sched.id);
+                                          } else {
+                                            showToast('Quiz reviewer missing.', 'error');
+                                          }
+                                        }}
+                                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow cursor-pointer"
+                                      >
+                                        <Play className="w-3.5 h-3.5" />
+                                        <span>{status === 'Completed' ? 'Retake Quiz' : 'Take Quiz'}</span>
+                                      </button>
+                                    )}
+
                                     {status === 'In Progress' && (
                                       <button
                                         onClick={() => {
@@ -2978,6 +3106,27 @@ export default function ElectricalReviewPro() {
                           >
                             <Play className="w-3.5 h-3.5" />
                             <span>Start Quiz</span>
+                          </button>
+                        )}
+
+                        {status !== 'Available' && status !== 'In Progress' && (
+                          <button
+                            onClick={() => {
+                              if (origQuiz) {
+                                setViewingScheduleDetails(null);
+                                const customConfig = {
+                                  ...quizConfig,
+                                  timeLimit: (viewingScheduleDetails.duration || 0) * 60,
+                                };
+                                startQuiz(origQuiz, customConfig, viewingScheduleDetails.id);
+                              } else {
+                                showToast('Original quiz reviewer is missing or has been deleted.', 'error');
+                              }
+                            }}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                            <span>{status === 'Completed' ? 'Retake Quiz' : 'Take Quiz'}</span>
                           </button>
                         )}
 
@@ -3226,404 +3375,698 @@ export default function ElectricalReviewPro() {
                   )}
                 </div>
 
-                {/* UPCOMING & SCHEDULED EXAMS SUMMARY PANEL (Ties with Requirement 5) */}
-                <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col gap-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg">
-                        <Calendar className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-black text-white">Upcoming & Scheduled Exams</h3>
-                        <p className="text-[11px] text-slate-400">Track and take scheduled tests according to your reviewer timeline</p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setActiveMode('calendar')}
-                      className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 cursor-pointer"
-                    >
-                      <span>Open Calendar</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                {/* Workspace Navigation Sub-Tabs */}
+                <div className="flex border-b border-white/5 pb-px gap-6 overflow-x-auto scrollbar-none">
+                  <button
+                    onClick={() => setLibraryTab('dashboard')}
+                    className={cn(
+                      "pb-4 text-xs sm:text-sm font-extrabold transition-all relative flex items-center gap-2 cursor-pointer whitespace-nowrap",
+                      libraryTab === 'dashboard'
+                        ? "text-white"
+                        : "text-slate-400 hover:text-slate-200"
+                    )}
+                  >
+                    <Trophy className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span>Academic Analytics Dashboard</span>
+                    {libraryTab === 'dashboard' && (
+                      <motion.div
+                        layoutId="activeLibraryTabBorder"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full"
+                      />
+                    )}
+                  </button>
 
-                  {scheduledQuizzes.length === 0 ? (
-                    <div className="text-center py-6 px-4 bg-white/[0.01] border border-dashed border-white/5 rounded-xl flex flex-col items-center gap-2">
-                      <Calendar className="w-8 h-8 text-slate-600 stroke-[1.5]" />
-                      <p className="text-xs text-slate-400 font-medium">No quiz schedules created yet.</p>
-                      <p className="text-[11px] text-slate-500 max-w-sm">
-                        Create timed exam schedules in the Reviewer Calendar to enforce study discipline and track mock-exam history.
-                      </p>
-                      {userRole === 'admin' ? (
-                        <button
-                          onClick={() => setActiveMode('calendar')}
-                          className="mt-1 px-3 py-1.5 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 font-bold text-xs rounded-lg border border-indigo-500/30 transition-all cursor-pointer"
-                        >
-                          Schedule Your First Quiz
-                        </button>
-                      ) : (
-                        <span className="text-[10px] text-slate-500 bg-white/5 px-2 py-1 rounded-md border border-white/5 mt-1">
-                          No schedules assigned by administrator yet.
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {scheduledQuizzes.slice(0, 4).map(schedule => {
-                        const status = getScheduledQuizStatus(schedule);
-                        const origQuiz = quizzes.find(q => q.id === schedule.quizId);
-
-                        return (
-                          <div
-                            key={schedule.id}
-                            className={cn(
-                              "relative border rounded-xl p-4 transition-all flex flex-col justify-between gap-4 overflow-hidden text-left",
-                              status === 'Available' ? 'bg-emerald-500/[0.03] border-emerald-500/20 shadow-emerald-950/20 shadow-lg' :
-                              status === 'In Progress' ? 'bg-indigo-500/[0.03] border-indigo-500/20 shadow-lg' :
-                              status === 'Completed' ? 'bg-slate-500/[0.01] border-white/5 opacity-80' :
-                              status === 'Missed/Expired' ? 'bg-red-500/[0.01] border-red-500/10' :
-                              'bg-[#131317] border-white/5 hover:border-white/10'
-                            )}
-                          >
-                            <div>
-                              <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-                                <span className={cn(
-                                  "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border",
-                                  status === 'Upcoming' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-                                  status === 'Available' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse',
-                                  status === 'In Progress' && 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
-                                  status === 'Completed' && 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-                                  status === 'Missed/Expired' && 'bg-red-500/10 text-red-400 border-red-500/20'
-                                )}>
-                                  {status}
-                                </span>
-
-                                <span className="text-[10px] text-slate-500 font-mono">
-                                  {schedule.date} @ {schedule.startTime}
-                                </span>
-                              </div>
-
-                              <h4 className="text-xs font-bold text-white line-clamp-1">{schedule.quizTitle}</h4>
-                              <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
-                                {schedule.subject || 'General Study'} • {schedule.category || 'Reviewer'}
-                              </p>
-
-                              {schedule.notes && (
-                                <p className="text-[10px] text-slate-500 mt-2 bg-black/20 p-1.5 rounded border border-white/5 italic">
-                                  &ldquo;{schedule.notes}&rdquo;
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-white/5">
-                              <span className="text-[10px] text-slate-400 flex items-center gap-1">
-                                <Clock className="w-3 h-3 text-slate-500" />
-                                <span>{schedule.duration ? `${schedule.duration} min timer` : 'No time limit'}</span>
-                              </span>
-
-                              {status === 'Available' && (
-                                <button
-                                  onClick={() => {
-                                    if (origQuiz) {
-                                      const customConfig = {
-                                        ...quizConfig,
-                                        timeLimit: (schedule.duration || 0) * 60,
-                                      };
-                                      startQuiz(origQuiz, customConfig, schedule.id);
-                                    } else {
-                                      showToast('Underlying quiz reviewer is missing or deleted.', 'error');
-                                    }
-                                  }}
-                                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] rounded-lg transition-all shadow shadow-emerald-950/40 cursor-pointer flex items-center gap-1 animate-pulse"
-                                >
-                                  <Play className="w-2.5 h-2.5" />
-                                  <span>Start Quiz</span>
-                                </button>
-                              )}
-
-                              {status === 'In Progress' && (
-                                <button
-                                  onClick={() => {
-                                    if (origQuiz) {
-                                      setSelectedQuiz(origQuiz);
-                                      setActiveMode('take');
-                                    } else {
-                                      showToast('Underlying quiz reviewer is missing or deleted.', 'error');
-                                    }
-                                  }}
-                                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] rounded-lg transition-all shadow cursor-pointer flex items-center gap-1"
-                                >
-                                  <span>Resume</span>
-                                  <ChevronRight className="w-2.5 h-2.5" />
-                                </button>
-                              )}
-
-                              {status === 'Completed' && (
-                                <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>Completed</span>
-                                </span>
-                              )}
-
-                              {status === 'Upcoming' && (
-                                <span className="text-[10px] text-slate-500 font-medium">
-                                  Starts soon
-                                </span>
-                              )}
-
-                              {status === 'Missed/Expired' && (
-                                <span className="text-[10px] text-red-400/80 font-medium italic">
-                                  Missed window
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <button
+                    onClick={() => setLibraryTab('quizzes')}
+                    className={cn(
+                      "pb-4 text-xs sm:text-sm font-extrabold transition-all relative flex items-center gap-2 cursor-pointer whitespace-nowrap",
+                      libraryTab === 'quizzes'
+                        ? "text-white"
+                        : "text-slate-400 hover:text-slate-200"
+                    )}
+                  >
+                    <BookOpen className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                    <span>Interactive Exam Library</span>
+                    <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[10px] font-black rounded-full leading-none flex-shrink-0">
+                      {quizzes.length}
+                    </span>
+                    {libraryTab === 'quizzes' && (
+                      <motion.div
+                        layoutId="activeLibraryTabBorder"
+                        className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full"
+                      />
+                    )}
+                  </button>
                 </div>
 
-                {/* Search / Filter / Sort Bar */}
-                <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col xl:flex-row items-stretch xl:items-center gap-4 justify-between">
-                  {/* Search box with Icon prefix */}
-                  <div className="relative flex-grow max-w-xl">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                      <Search className="w-4 h-4" />
+                {/* TAB CONTENT 1: ACADEMIC ANALYTICS DASHBOARD */}
+                {libraryTab === 'dashboard' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col gap-6"
+                  >
+                    {/* Metrics Dashboard Row */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                      {/* Metric 1: Total Questions */}
+                      <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4.5 shadow-xl flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">Total Questions</span>
+                          <span className="text-xl sm:text-2xl font-black text-white mt-1 block">
+                            {dashboardStats.totalQuestions}
+                          </span>
+                          <span className="text-[9px] text-slate-400 mt-0.5 block leading-tight">Practice database</span>
+                        </div>
+                        <div className="p-3 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl flex-shrink-0">
+                          <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </div>
+                      </div>
+
+                      {/* Metric 2: Available Reviewers */}
+                      <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4.5 shadow-xl flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">Active Exams</span>
+                          <span className="text-xl sm:text-2xl font-black text-white mt-1 block">
+                            {dashboardStats.totalQuizzes}
+                          </span>
+                          <span className="text-[9px] text-slate-400 mt-0.5 block leading-tight">Available reviewers</span>
+                        </div>
+                        <div className="p-3 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-xl flex-shrink-0">
+                          <FolderOpen className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </div>
+                      </div>
+
+                      {/* Metric 3: Completed Runs */}
+                      <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4.5 shadow-xl flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">Completed Runs</span>
+                          <span className="text-xl sm:text-2xl font-black text-white mt-1 block">
+                            {dashboardStats.completedQuizzesCount}
+                          </span>
+                          <span className="text-[9px] text-slate-400 mt-0.5 block leading-tight">Interactive attempts</span>
+                        </div>
+                        <div className="p-3 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl flex-shrink-0">
+                          <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </div>
+                      </div>
+
+                      {/* Metric 4: Weighted Score */}
+                      <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4.5 shadow-xl flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">Average Score</span>
+                          <span className="text-xl sm:text-2xl font-black text-white mt-1 block">
+                            {dashboardStats.averageScore}%
+                          </span>
+                          <span className="text-[9px] text-slate-400 mt-0.5 block leading-tight">Across completions</span>
+                        </div>
+                        <div className="p-3 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl flex-shrink-0">
+                          <Trophy className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </div>
+                      </div>
+
+                      {/* Metric 5: Streak Counter */}
+                      <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4.5 shadow-xl flex-col sm:flex-row flex items-start sm:items-center justify-between col-span-2 md:col-span-1">
+                        <div>
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">Study Streak</span>
+                          <span className="text-xl sm:text-2xl font-black text-white mt-1 block">
+                            {studyStreak} Day{studyStreak !== 1 && 's'}
+                          </span>
+                          <span className="text-[9px] text-slate-400 mt-0.5 block leading-tight">Consecutive days</span>
+                        </div>
+                        <div className={cn(
+                          "p-3 rounded-xl flex-shrink-0 self-end sm:self-auto mt-2 sm:mt-0 border",
+                          studyStreak > 0
+                            ? "bg-orange-500/15 text-orange-400 border-orange-500/35"
+                            : "bg-white/5 text-slate-500 border-white/5"
+                        )}>
+                          <Flame className={cn("w-4 h-4 sm:w-5 sm:h-5", studyStreak > 0 && "animate-bounce")} />
+                        </div>
+                      </div>
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Search quizzes, subjects..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#0E0E11] text-slate-100 text-xs placeholder-slate-500 transition-all min-h-[44px]"
-                    />
-                  </div>
 
-                  {/* Filter and Sort selectors */}
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 justify-end flex-shrink-0">
-                    <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 min-h-[44px]">
-                      <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 flex-shrink-0">
-                        <Filter className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Subject:</span>
-                      </span>
-                      <select
-                        value={filterSubject}
-                        onChange={(e) => setFilterSubject(e.target.value)}
-                        className="w-full sm:w-auto p-2.5 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#111115] text-xs font-bold text-slate-200 cursor-pointer min-h-[44px] sm:min-w-[150px]"
-                      >
-                        <option value="All" className="bg-[#111115]">All Subjects</option>
-                        {allSubjects.map(sub => (
-                          <option key={sub} value={sub} className="bg-[#111115]">{sub}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 min-h-[44px]">
-                      <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 flex-shrink-0">
-                        <ArrowUpDown className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Sort:</span>
-                      </span>
-                      <select
-                        value={sortBy}
-                        onChange={(e: any) => setSortBy(e.target.value)}
-                        className="w-full sm:w-auto p-2.5 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#111115] text-xs font-bold text-slate-200 cursor-pointer min-h-[44px] sm:min-w-[150px]"
-                      >
-                        <option value="newest" className="bg-[#111115]">Newest Added</option>
-                        <option value="oldest" className="bg-[#111115]">Oldest Added</option>
-                        <option value="questions_desc" className="bg-[#111115]">Most Questions</option>
-                        <option value="questions_asc" className="bg-[#111115]">Least Questions</option>
-                        <option value="title_asc" className="bg-[#111115]">Alphabetical (A-Z)</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Quizzes List */}
-                <div className="grid grid-cols-1 gap-4">
-                  {filteredQuizzes.length === 0 ? (
-                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-12 text-center shadow-lg">
-                      <FolderOpen className="w-12 h-12 mx-auto text-slate-600 mb-3" />
-                      <h3 className="text-md font-bold text-white">No Quizzes Found</h3>
-                      <p className="text-xs text-slate-400 mt-1">Upload a PDF or Word document to generate dynamic exams, or try resetting search filters.</p>
-                      <button
-                        onClick={() => {
-                          setSearchQuery('');
-                          setFilterSubject('All');
-                        }}
-                        className="mt-4 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 text-slate-300 text-xs font-bold rounded-lg transition-all"
-                      >
-                        Reset Search Filters
-                      </button>
-                    </div>
-                  ) : (
-                    filteredQuizzes.map(quiz => {
-                      const quizAttempts = attempts.filter(a => a.quizId === quiz.id && a.status === 'completed');
-                      const highestScoreAttempt = quizAttempts.length > 0 ? quizAttempts.reduce((max, a) => (a.score / a.totalQuestions) > (max.score / max.totalQuestions) ? a : max, quizAttempts[0]) : null;
-                      const latestAttempt = quizAttempts.length > 0 ? [...quizAttempts].sort((a, b) => new Date(b.completedAt || b.startedAt).getTime() - new Date(a.completedAt || a.startedAt).getTime())[0] : null;
-
-                      return (
-                        <motion.div
-                          key={quiz.id}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="bg-[#111114] border border-white/10 hover:border-indigo-500 rounded-2xl p-6 shadow-lg hover:shadow-[0_4px_25px_rgba(0,0,0,0.4)] transition-all flex flex-col gap-4"
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-grow">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {quiz.subject && (
-                                  <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase rounded">
-                                    {quiz.subject}
-                                  </span>
-                                )}
-                                {quiz.category && (
-                                  <span className="px-2 py-0.5 bg-white/5 text-slate-400 text-[10px] font-bold uppercase rounded">
-                                    {quiz.category}
-                                  </span>
-                                )}
-                                {quiz.isPublished ? (
-                                  <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase rounded flex items-center gap-1">
-                                    <ShieldCheck className="w-3 h-3" />
-                                    <span>Published</span>
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold uppercase rounded">
-                                    Draft Review
-                                  </span>
-                                )}
-                              </div>
-                              <h3 className="text-base font-bold text-white mt-2 hover:text-indigo-400 cursor-pointer" onClick={() => { setSelectedQuiz(quiz); startQuiz(quiz); }}>
-                                {quiz.title}
-                              </h3>
-                              {quiz.description && (
-                                <p className="text-xs text-slate-400 mt-1 line-clamp-2">{quiz.description}</p>
-                              )}
-                            </div>
-
-                            <div className="text-right flex-shrink-0">
-                              <span className="text-lg font-black text-indigo-400 block">{quiz.questions.length}</span>
-                              <span className="text-[10px] font-bold text-slate-500 uppercase">Questions</span>
-                            </div>
+                    {/* Analytics Dashboard Grid: Graph + Recommendations */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                      {/* Left: Subject Mastery Graph */}
+                      <div className="lg:col-span-7 bg-[#111115] border border-white/[0.06] rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col gap-4">
+                        <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+                          <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg">
+                            <Activity className="w-4 h-4" />
                           </div>
+                          <div>
+                            <h3 className="text-sm font-black text-white">Subject Mastery index</h3>
+                            <p className="text-[11px] text-slate-400">Mean accuracy score tracked per board syllabus topic</p>
+                          </div>
+                        </div>
 
-                          {/* Dynamic Quiz Attempts and Score Panel */}
-                          {quizAttempts.length > 0 ? (
-                            <div className="flex flex-col gap-3.5 bg-white/5 border border-white/5 rounded-xl p-4">
-                              <div className="flex items-center gap-4 flex-wrap">
-                                <div className="flex items-center gap-2">
-                                  <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                                  <div>
-                                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Best Score</span>
-                                    <span className="text-xs font-black text-white mt-0.5 block">
-                                      {highestScoreAttempt ? `${highestScoreAttempt.score}/${highestScoreAttempt.totalQuestions}` : '0/0'} 
-                                      <span className="text-amber-400 text-[10px] font-bold ml-1">
-                                        ({highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}%)
-                                      </span>
-                                    </span>
-                                  </div>
-                                </div>
-                                
-                                <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
-
-                                <div className="flex items-center gap-2">
-                                  <Clock className="w-4 h-4 text-indigo-400 flex-shrink-0" />
-                                  <div>
-                                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Latest Score</span>
-                                    <span className="text-xs font-black text-white mt-0.5 block">
-                                      {latestAttempt ? `${latestAttempt.score}/${latestAttempt.totalQuestions}` : '0/0'}
-                                      <span className="text-indigo-400 text-[10px] font-bold ml-1">
-                                        ({latestAttempt ? Math.round((latestAttempt.score / latestAttempt.totalQuestions) * 100) : 0}%)
-                                      </span>
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="h-6 w-[1px] bg-white/10 hidden sm:block" />
-
-                                <div className="flex items-center gap-2">
-                                  <Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                                  <div>
-                                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Attempts</span>
-                                    <span className="text-xs font-black text-white mt-0.5 block">{quizAttempts.length} Completed</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {highestScoreAttempt && (
-                                <div className="space-y-1.5 border-t border-white/5 pt-3">
-                                  <div className="flex justify-between items-center text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                                    <span>Review Mastery Progress</span>
-                                    <span className="text-amber-400 font-extrabold">{highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}% Peak Accuracy</span>
-                                  </div>
-                                  <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
-                                    <div 
-                                      className="bg-amber-400 h-1.5 rounded-full transition-all duration-500" 
-                                      style={{ width: `${highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}%` }}
+                        {dashboardStats.subjectProgress.length === 0 ? (
+                          <div className="flex-grow flex flex-col items-center justify-center text-center py-10 px-4 bg-white/[0.01] border border-dashed border-white/5 rounded-xl">
+                            <Trophy className="w-10 h-10 text-slate-600 mb-3 stroke-[1.5]" />
+                            <h4 className="text-xs font-bold text-white">No Board Scores Found</h4>
+                            <p className="text-[11px] text-slate-500 mt-1 max-w-sm">
+                              Complete practice tests to build your mastery blueprint and see automated accuracy scoring per subject.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="h-[240px] w-full text-slate-400 font-medium">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart
+                                layout="vertical"
+                                data={dashboardStats.subjectProgress}
+                                margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
+                              >
+                                <XAxis type="number" domain={[0, 100]} stroke="#475569" fontSize={10} fontStyle="bold" />
+                                <YAxis dataKey="name" type="category" stroke="#475569" fontSize={10} fontStyle="bold" width={110} />
+                                <Tooltip 
+                                  contentStyle={{ backgroundColor: '#0B0B0C', borderColor: 'rgba(255,255,255,0.08)', borderRadius: '12px' }} 
+                                  labelStyle={{ fontWeight: 'black', color: '#fff', fontSize: '11px' }}
+                                />
+                                <Bar dataKey="avgScore" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={12}>
+                                  {dashboardStats.subjectProgress.map((entry, index) => (
+                                    <Cell 
+                                      key={`cell-${index}`} 
+                                      fill={entry.avgScore >= 80 ? '#10b981' : entry.avgScore >= 60 ? '#6366f1' : '#f43f5e'} 
                                     />
-                                  </div>
-                                </div>
-                              )}
+                                  ))}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right: Tailored Review Recommendations */}
+                      <div className="lg:col-span-5 bg-[#111115] border border-white/[0.06] rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col gap-4">
+                        <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+                          <div className="p-1.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-black text-white">Recommended practice</h3>
+                            <p className="text-[11px] text-slate-400">Targeted practices to secure weak subject scores</p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 flex-grow justify-center">
+                          {dashboardStats.recommendedQuizzes.length === 0 ? (
+                            <div className="text-center py-10 px-4">
+                              <HelpCircle className="w-8 h-8 text-slate-600 mx-auto stroke-[1.5] mb-2" />
+                              <p className="text-xs text-slate-500 font-medium">No practice reviews mapped.</p>
+                              <p className="text-[10px] text-slate-600 mt-1">Upload files using the scanner module to compile exams.</p>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-white/[0.02] border border-white/5 p-2 rounded-xl">
-                              <HelpCircle className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
-                              <span>No attempts completed yet. Click &ldquo;Take Quiz&rdquo; to test your skills!</span>
-                            </div>
+                            dashboardStats.recommendedQuizzes.map(q => {
+                              const qAttempts = attempts.filter(a => a.quizId === q.id && a.status === 'completed');
+                              const bestScore = qAttempts.length > 0 ? Math.max(...qAttempts.map(a => Math.round((a.score / a.totalQuestions) * 100))) : null;
+
+                              return (
+                                <div key={q.id} className="p-3 border border-white/5 rounded-xl bg-white/[0.01] hover:bg-white/[0.02] transition-all flex items-center justify-between gap-4">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded text-[9px] font-black uppercase">
+                                        {q.subject || 'Syllabus Topic'}
+                                      </span>
+                                      {bestScore !== null && (
+                                        <span className="px-1.5 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-[9px] font-bold">
+                                          Peak: {bestScore}%
+                                        </span>
+                                      )}
+                                    </div>
+                                    <h4 className="text-xs font-bold text-white mt-1.5 truncate" title={q.title}>{q.title}</h4>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">{q.questions.length} reviewer questions</p>
+                                  </div>
+                                  <button
+                                    onClick={() => { setSelectedQuiz(q); startQuiz(q); }}
+                                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded-lg transition-all flex items-center gap-1 cursor-pointer flex-shrink-0 shadow shadow-indigo-950/20 active:scale-95"
+                                  >
+                                    <Play className="w-2.5 h-2.5" />
+                                    <span>Practice</span>
+                                  </button>
+                                </div>
+                              );
+                            })
                           )}
+                        </div>
+                      </div>
+                    </div>
 
-                          <div className="border-t border-white/5 pt-4 flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
-                            <div className="flex items-center gap-1.5">
-                              <Clock className="w-3.5 h-3.5" />
-                              <span>Created: {new Date(quiz.createdAt).toLocaleDateString()}</span>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {/* Delete Quiz Access */}
-                              <button
-                                onClick={() => setQuizToDelete(quiz)}
-                                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent hover:border-red-500/20"
-                                title="Delete Quiz"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Edit Quiz Details Access */}
-                              <button
-                                onClick={() => handleOpenEditQuizModal(quiz)}
-                                className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent hover:border-indigo-500/20"
-                                title="Edit Quiz Details / Rename"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Question Manager / Admin Panel Access */}
-                              <button
-                                onClick={() => {
-                                  setSelectedQuiz(quiz);
-                                  setActiveMode('edit');
-                                }}
-                                className="px-3 py-1.5 hover:bg-white/10 text-slate-300 font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
-                              >
-                                <Settings2 className="w-3.5 h-3.5" />
-                                <span>Manage Quiz ({quiz.questions.length})</span>
-                              </button>
-
-                              {/* Take Quiz Access */}
-                              <button
-                                onClick={() => checkAndResumeQuiz(quiz)}
-                                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
-                              >
-                                <BookOpen className="w-3.5 h-3.5" />
-                                <span>Take Quiz</span>
-                              </button>
-                            </div>
+                    {/* Upcoming Simulated Mock Exams Panel */}
+                    <div className="bg-[#111114] border border-white/10 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col gap-4">
+                      <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg">
+                            <Calendar className="w-4 h-4" />
                           </div>
-                        </motion.div>
-                      );
-                    })
-                  )}
-                </div>
+                          <div>
+                            <h3 className="text-sm font-black text-white">Upcoming Simulated Mock Exams</h3>
+                            <p className="text-[11px] text-slate-400">Scheduled time-limit runs from your review syllabus</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setActiveMode('calendar')}
+                          className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>Open Scheduler</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {scheduledQuizzes.length === 0 ? (
+                        <div className="text-center py-6 px-4 bg-white/[0.01] border border-dashed border-white/5 rounded-xl flex flex-col items-center gap-2">
+                          <Calendar className="w-8 h-8 text-slate-600 stroke-[1.5]" />
+                          <p className="text-xs text-slate-400 font-medium">No mock exam sessions scheduled yet.</p>
+                          <p className="text-[10px] text-slate-500 max-w-sm">
+                            Configure active mock schedules in the Review Scheduler to practice time pacing under board conditions.
+                          </p>
+                          {userRole === 'admin' && (
+                            <button
+                              onClick={() => setActiveMode('calendar')}
+                              className="mt-1 px-3 py-1.5 bg-indigo-600/20 text-indigo-300 hover:bg-indigo-600/30 font-bold text-xs rounded-lg border border-indigo-500/30 transition-all cursor-pointer"
+                            >
+                              Open Calendar to Schedule
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {scheduledQuizzes.slice(0, 4).map(schedule => {
+                            const status = getScheduledQuizStatus(schedule);
+                            const origQuiz = quizzes.find(q => q.id === schedule.quizId);
+
+                            return (
+                              <div
+                                key={schedule.id}
+                                className={cn(
+                                  "relative border rounded-xl p-4 transition-all flex flex-col justify-between gap-4 overflow-hidden text-left",
+                                  status === 'Available' ? 'bg-emerald-500/[0.03] border-emerald-500/20 shadow-emerald-950/20 shadow-lg' :
+                                  status === 'In Progress' ? 'bg-indigo-500/[0.03] border-indigo-500/20 shadow-lg' :
+                                  status === 'Completed' ? 'bg-slate-500/[0.01] border-white/5 opacity-80' :
+                                  status === 'Missed/Expired' ? 'bg-red-500/[0.01] border-red-500/10' :
+                                  'bg-[#131317] border-white/5 hover:border-white/10'
+                                )}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                    <span className={cn(
+                                      "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border",
+                                      status === 'Upcoming' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                                      status === 'Available' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 animate-pulse',
+                                      status === 'In Progress' && 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+                                      status === 'Completed' && 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+                                      status === 'Missed/Expired' && 'bg-red-500/10 text-red-400 border-red-500/20'
+                                    )}>
+                                      {status}
+                                    </span>
+
+                                    <span className="text-[10px] text-slate-500 font-mono">
+                                      {schedule.date} @ {schedule.startTime}
+                                    </span>
+                                  </div>
+
+                                  <h4 className="text-xs font-bold text-white line-clamp-1">{schedule.quizTitle}</h4>
+                                  <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
+                                    {schedule.subject || 'General Study'} • {schedule.category || 'Reviewer'}
+                                  </p>
+
+                                  {schedule.notes && (
+                                    <p className="text-[10px] text-slate-500 mt-2 bg-black/20 p-1.5 rounded border border-white/5 italic">
+                                      &ldquo;{schedule.notes}&rdquo;
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-white/5">
+                                  <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-slate-500" />
+                                    <span>{schedule.duration ? `${schedule.duration} min limit` : 'Unlimited time'}</span>
+                                  </span>
+
+                                  {status === 'Available' && (
+                                    <button
+                                      onClick={() => {
+                                        if (origQuiz) {
+                                          const customConfig = {
+                                            ...quizConfig,
+                                            timeLimit: (schedule.duration || 0) * 60,
+                                          };
+                                          startQuiz(origQuiz, customConfig, schedule.id);
+                                        } else {
+                                          showToast('Underlying quiz reviewer is missing or deleted.', 'error');
+                                        }
+                                      }}
+                                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[11px] rounded-lg transition-all shadow shadow-emerald-950/40 cursor-pointer flex items-center gap-1 animate-pulse"
+                                    >
+                                      <Play className="w-2.5 h-2.5" />
+                                      <span>Start Quiz</span>
+                                    </button>
+                                  )}
+
+                                  {status === 'In Progress' && (
+                                    <button
+                                      onClick={() => {
+                                        if (origQuiz) {
+                                          setSelectedQuiz(origQuiz);
+                                          setActiveMode('take');
+                                        } else {
+                                          showToast('Underlying quiz reviewer is missing or deleted.', 'error');
+                                        }
+                                      }}
+                                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] rounded-lg transition-all shadow cursor-pointer flex items-center gap-1"
+                                    >
+                                      <span>Resume</span>
+                                      <ChevronRight className="w-2.5 h-2.5" />
+                                    </button>
+                                  )}
+
+                                  {status !== 'Available' && status !== 'In Progress' && (
+                                    <button
+                                      onClick={() => {
+                                        if (origQuiz) {
+                                          const customConfig = {
+                                            ...quizConfig,
+                                            timeLimit: (schedule.duration || 0) * 60,
+                                          };
+                                          startQuiz(origQuiz, customConfig, schedule.id);
+                                        } else {
+                                          showToast('Underlying quiz reviewer is missing or deleted.', 'error');
+                                        }
+                                      }}
+                                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] rounded-lg transition-all shadow cursor-pointer flex items-center gap-1"
+                                    >
+                                      <Play className="w-2.5 h-2.5" />
+                                      <span>{status === 'Completed' ? 'Retake' : 'Take'}</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Wide Table of Recent Quiz Results */}
+                    <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col gap-4">
+                      <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+                        <div className="p-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg">
+                          <History className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black text-white">Recent Mock Exam Runs</h3>
+                          <p className="text-[11px] text-slate-400">History record and key summaries from your practice completions</p>
+                        </div>
+                      </div>
+                      
+                      {dashboardStats.recentResults.length === 0 ? (
+                        <div className="text-center py-12 text-xs text-slate-500 border border-dashed border-white/5 rounded-xl bg-white/[0.01]">
+                          No completed reviewer runs captured yet. Take an interactive practice exam to start logging scores.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto select-none">
+                          <table className="w-full text-left text-xs border-collapse min-w-[600px]">
+                            <thead>
+                              <tr className="border-b border-white/10 text-slate-500 font-extrabold uppercase tracking-wider text-[10px]">
+                                <th className="pb-3 pr-4">Reviewer Exam</th>
+                                <th className="pb-3 pr-4">Subject Syllabus</th>
+                                <th className="pb-3 pr-4">Run Date</th>
+                                <th className="pb-3 pr-4 text-center">Questions Solved / Score</th>
+                                <th className="pb-3 pr-4">Total Time</th>
+                                <th className="pb-3 text-right">Action Desk</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5 font-medium text-slate-300">
+                              {dashboardStats.recentResults.map(attempt => {
+                                const q = quizzes.find(quiz => quiz.id === attempt.quizId);
+                                const scorePercent = Math.round((attempt.score / attempt.totalQuestions) * 100);
+                                return (
+                                  <tr key={attempt.id} className="hover:bg-white/[0.02] transition-colors group">
+                                    <td className="py-3.5 pr-4 font-bold text-white max-w-[200px] truncate" title={q?.title}>{q?.title || 'Unknown Reviewer'}</td>
+                                    <td className="py-3.5 pr-4 text-indigo-300 font-bold">{q?.subject || 'Syllabus'}</td>
+                                    <td className="py-3.5 pr-4 text-slate-400">{new Date(attempt.completedAt || '').toLocaleDateString()}</td>
+                                    <td className="py-3.5 pr-4 text-center">
+                                      <span className={cn(
+                                        "px-2.5 py-1 rounded text-[10px] font-black uppercase border",
+                                        scorePercent >= 80 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
+                                        scorePercent >= 60 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : 
+                                        "bg-red-500/10 text-red-400 border-red-500/20"
+                                      )}>
+                                        {attempt.score} / {attempt.totalQuestions} ({scorePercent}%)
+                                      </span>
+                                    </td>
+                                    <td className="py-3.5 pr-4 font-mono text-slate-400">
+                                      {formatDuration(attempt.startedAt, attempt.completedAt)}
+                                    </td>
+                                    <td className="py-3.5 text-right">
+                                      <button
+                                        onClick={() => {
+                                          if (q) {
+                                            setSelectedQuiz(q);
+                                            startQuiz(q);
+                                          }
+                                        }}
+                                        className="px-3 py-1.5 bg-indigo-600/10 border border-indigo-500/20 hover:bg-indigo-600 text-indigo-300 hover:text-white text-[10px] font-extrabold rounded-lg transition-all cursor-pointer shadow-sm active:scale-95"
+                                      >
+                                        Retake practice
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* TAB CONTENT 2: INTERACTIVE PRACTICE EXAMS LIBRARY */}
+                {libraryTab === 'quizzes' && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex flex-col gap-6"
+                  >
+                    {/* Search / Filter / Sort Bar */}
+                    <div className="bg-[#111115] border border-white/[0.06] rounded-2xl p-4 sm:p-5 shadow-xl flex flex-col xl:flex-row items-stretch xl:items-center gap-4 justify-between">
+                      {/* Search box with Icon prefix */}
+                      <div className="relative flex-grow max-w-xl">
+                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                          <Search className="w-4 h-4" />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Search quizzes, engineering topics, subjects..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#0E0E11] text-slate-100 text-xs placeholder-slate-500 transition-all min-h-[44px]"
+                        />
+                      </div>
+
+                      {/* Filter and Sort selectors */}
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 justify-end flex-shrink-0">
+                        <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 min-h-[44px]">
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 flex-shrink-0">
+                            <Filter className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>Subject:</span>
+                          </span>
+                          <select
+                            value={filterSubject}
+                            onChange={(e) => setFilterSubject(e.target.value)}
+                            className="w-full sm:w-auto p-2.5 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#111115] text-xs font-bold text-slate-200 cursor-pointer min-h-[44px] sm:min-w-[150px]"
+                          >
+                            <option value="All" className="bg-[#111115]">All Subjects</option>
+                            {allSubjects.map(sub => (
+                              <option key={sub} value={sub} className="bg-[#111115]">{sub}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-grow sm:flex-grow-0 min-h-[44px]">
+                          <span className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 flex-shrink-0">
+                            <ArrowUpDown className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>Sort:</span>
+                          </span>
+                          <select
+                            value={sortBy}
+                            onChange={(e: any) => setSortBy(e.target.value)}
+                            className="w-full sm:w-auto p-2.5 border border-white/[0.06] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-[#111115] text-xs font-bold text-slate-200 cursor-pointer min-h-[44px] sm:min-w-[150px]"
+                          >
+                            <option value="newest" className="bg-[#111115]">Newest Added</option>
+                            <option value="oldest" className="bg-[#111115]">Oldest Added</option>
+                            <option value="questions_desc" className="bg-[#111115]">Most Questions</option>
+                            <option value="questions_asc" className="bg-[#111115]">Least Questions</option>
+                            <option value="title_asc" className="bg-[#111115]">Alphabetical (A-Z)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quizzes Grid List */}
+                    <div className="grid grid-cols-1 gap-4">
+                      {filteredQuizzes.length === 0 ? (
+                        <div className="bg-[#111114] border border-white/10 rounded-2xl p-12 text-center shadow-lg">
+                          <FolderOpen className="w-12 h-12 mx-auto text-slate-600 mb-3" />
+                          <h3 className="text-md font-bold text-white">No Quizzes Found</h3>
+                          <p className="text-xs text-slate-400 mt-1">Upload a PDF or Word document to generate dynamic exams, or try resetting search filters.</p>
+                          <button
+                            onClick={() => {
+                              setSearchQuery('');
+                              setFilterSubject('All');
+                            }}
+                            className="mt-4 px-4 py-2 bg-white/5 border border-white/10 hover:bg-white/10 text-slate-300 text-xs font-bold rounded-lg transition-all"
+                          >
+                            Reset Search Filters
+                          </button>
+                        </div>
+                      ) : (
+                        filteredQuizzes.map(quiz => {
+                          const quizAttempts = attempts.filter(a => a.quizId === quiz.id && a.status === 'completed');
+                          const highestScoreAttempt = quizAttempts.length > 0 ? quizAttempts.reduce((max, a) => (a.score / a.totalQuestions) > (max.score / max.totalQuestions) ? a : max, quizAttempts[0]) : null;
+                          const latestAttempt = quizAttempts.length > 0 ? [...quizAttempts].sort((a, b) => new Date(b.completedAt || b.startedAt).getTime() - new Date(a.completedAt || a.startedAt).getTime())[0] : null;
+
+                          return (
+                            <motion.div
+                              key={quiz.id}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              className="bg-[#111114] border border-white/10 hover:border-indigo-500 rounded-2xl p-6 shadow-lg hover:shadow-[0_4px_25px_rgba(0,0,0,0.4)] transition-all flex flex-col gap-4"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex-grow">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {quiz.subject && (
+                                      <span className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] font-bold uppercase rounded">
+                                        {quiz.subject}
+                                      </span>
+                                    )}
+                                    {quiz.category && (
+                                      <span className="px-2 py-0.5 bg-white/5 text-slate-400 text-[10px] font-bold uppercase rounded">
+                                        {quiz.category}
+                                      </span>
+                                    )}
+                                    {quiz.isPublished ? (
+                                      <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase rounded flex items-center gap-1">
+                                        <ShieldCheck className="w-3 h-3" />
+                                        <span>Published</span>
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold uppercase rounded">
+                                        Draft Review
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h3 className="text-base font-bold text-white mt-2 hover:text-indigo-400 cursor-pointer" onClick={() => { setSelectedQuiz(quiz); startQuiz(quiz); }}>
+                                    {quiz.title}
+                                  </h3>
+                                  {quiz.description && (
+                                    <p className="text-xs text-slate-400 mt-1 line-clamp-2">{quiz.description}</p>
+                                  )}
+                                </div>
+
+                                <div className="text-right flex-shrink-0 font-bold">
+                                  <span className="text-lg font-black text-indigo-400 block">{quiz.questions.length}</span>
+                                  <span className="text-[10px] font-bold text-slate-500 uppercase">Questions</span>
+                                </div>
+                              </div>
+
+                              {/* Dynamic Quiz Attempts and Score Panel */}
+                              {quizAttempts.length > 0 ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 bg-white/5 border border-white/5 rounded-xl p-4">
+                                  <div className="flex items-center gap-2">
+                                    <Trophy className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                    <div>
+                                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Best Score</span>
+                                      <span className="text-xs font-black text-white mt-0.5 block">
+                                        {highestScoreAttempt ? `${highestScoreAttempt.score}/${highestScoreAttempt.totalQuestions}` : '0/0'} 
+                                        <span className="text-amber-400 text-[10px] font-bold ml-1">
+                                          ({highestScoreAttempt ? Math.round((highestScoreAttempt.score / highestScoreAttempt.totalQuestions) * 100) : 0}%)
+                                        </span>
+                                      </span>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2 border-t sm:border-t-0 sm:border-l border-white/10 pt-2.5 sm:pt-0 sm:pl-4">
+                                    <Clock className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                                    <div>
+                                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Latest Score</span>
+                                      <span className="text-xs font-black text-white mt-0.5 block">
+                                        {latestAttempt ? `${latestAttempt.score}/${latestAttempt.totalQuestions}` : '0/0'}
+                                        <span className="text-indigo-400 text-[10px] font-bold ml-1">
+                                          ({latestAttempt ? Math.round((latestAttempt.score / latestAttempt.totalQuestions) * 100) : 0}%)
+                                        </span>
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 border-t sm:border-t-0 sm:border-l border-white/10 pt-2.5 sm:pt-0 sm:pl-4">
+                                    <Activity className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                                    <div>
+                                      <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-bold leading-none">Attempts</span>
+                                      <span className="text-xs font-black text-white mt-0.5 block">{quizAttempts.length} Completed</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-white/[0.02] border border-white/5 p-2 rounded-xl">
+                                  <HelpCircle className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                                  <span>No attempts completed yet. Click &ldquo;Take Quiz&rdquo; to test your skills!</span>
+                                </div>
+                              )}
+
+                              <div className="border-t border-white/5 pt-4 flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  <span>Created: {new Date(quiz.createdAt).toLocaleDateString()}</span>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {/* Delete Quiz Access */}
+                                  <button
+                                    onClick={() => setQuizToDelete(quiz)}
+                                    className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent hover:border-red-500/20"
+                                    title="Delete Quiz"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Edit Quiz Details Access */}
+                                  <button
+                                    onClick={() => handleOpenEditQuizModal(quiz)}
+                                    className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all flex items-center justify-center cursor-pointer border border-transparent hover:border-indigo-500/20"
+                                    title="Edit Quiz Details / Rename"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {/* Question Manager / Admin Panel Access */}
+                                  <button
+                                    onClick={() => {
+                                      setSelectedQuiz(quiz);
+                                      setActiveMode('edit');
+                                    }}
+                                    className="px-3 py-1.5 hover:bg-white/10 text-slate-300 font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Settings2 className="w-3.5 h-3.5" />
+                                    <span>Manage ({quiz.questions.length})</span>
+                                  </button>
+
+                                  {/* Take Quiz Access */}
+                                  <button
+                                    onClick={() => checkAndResumeQuiz(quiz)}
+                                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
+                                  >
+                                    <BookOpen className="w-3.5 h-3.5" />
+                                    <span>Take Quiz</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </motion.div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </motion.div>
+                )}
               </div>
             )}
 
@@ -5757,7 +6200,7 @@ export default function ElectricalReviewPro() {
 
       {/* Footer */}
       <footer className="bg-[#0B0B0C] border-t border-white/10 mt-12 py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-12 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p>© 2026 Electrical Review Pro • Real-Time Client Parsing & Verification Stack</p>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
