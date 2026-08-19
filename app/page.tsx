@@ -55,6 +55,7 @@ import {
 import { cn } from '@/lib/utils';
 import { QuestionType, Question, Quiz, QuizAttempt, ExtractionLog, ScheduledQuiz } from '@/lib/types';
 import { MathRenderer } from '@/components/MathRenderer';
+import { ExplanationVisualizer } from '@/components/ExplanationVisualizer';
 
 // Recharts components imports
 import {
@@ -93,22 +94,22 @@ const loadPDFJS = async (): Promise<any> => {
   });
 };
 
-// Default high-quality, professional sample reviewer questions
+// Default high-quality, professional sample reviewer questions with Whiteboard Solutions
 const SAMPLE_QUIZ: Quiz = {
   id: 'sample-civil-engineering',
-  title: 'PRC Board Exam Reviewer (Civil Engineering & NSCP)',
-  description: 'A sample professional test designed to demonstrate calculations, NSCP code questions, True/False, Fill in the Blank, and Matching type formats.',
-  subject: 'Civil & Structural Engineering',
-  category: 'Structural Design',
+  title: 'PRC Board Exam Reviewer (Engineering & Applied Sciences)',
+  description: 'A comprehensive professional board reviewer demonstrating step-by-step whiteboard solutions, AC power triangles, beam shear diagrams, NSCP codes, and matching formats.',
+  subject: 'Engineering Sciences & Allied Subjects',
+  category: 'PRC Board Review',
   isPublished: true,
   createdAt: new Date().toISOString(),
-  sourceFiles: ['NSCP_Structural_Reviewer.pdf'],
+  sourceFiles: ['PRC_Board_Review_Module_2025.pdf'],
   questions: [
     {
       id: 'q1',
       number: '1',
       type: QuestionType.MCQ,
-      text: 'A simply supported reinforced concrete beam spans 6 meters and carries a uniformly distributed service dead load of 15 kN/m and a service live load of 20 kN/m. Applying LRFD design load combinations (1.2D + 1.6L), determine the maximum factored shear force (Vu) at the critical section.',
+      text: 'A simply supported reinforced concrete beam spans $L = 6\\text{ m}$ and carries a uniformly distributed service dead load $w_D = 15\\text{ kN/m}$ and service live load $w_L = 20\\text{ kN/m}$. Applying NSCP/ACI LRFD load factors ($w_u = 1.2w_D + 1.6w_L$), determine the maximum factored shear force ($V_u$) at the support.',
       choices: [
         'A. Vu = 110 kN',
         'B. Vu = 135 kN',
@@ -116,33 +117,163 @@ const SAMPLE_QUIZ: Quiz = {
         'D. Vu = 168 kN'
       ],
       correctAnswer: 'C',
-      explanation: 'Factored load wu = 1.2(15) + 1.6(20) = 18 + 32 = 50 kN/m. The maximum shear force Vu at the support of a simply supported beam is wu * L / 2. Therefore, Vu = 50 * 6 / 2 = 150 kN.',
+      explanation: 'Factored load wu = 1.2(15) + 1.6(20) = 18 + 32 = 50 kN/m. The maximum shear force Vu at the support of a simply supported beam is wu * L / 2 = 50 * 6 / 2 = 150 kN.',
+      solution: {
+        given: [
+          'Span \\; L = 6.0\\text{ m}',
+          'Dead \\; Load \\; w_D = 15\\text{ kN/m}',
+          'Live \\; Load \\; w_L = 20\\text{ kN/m}',
+          'Load \\; Combination: 1.2D + 1.6L'
+        ],
+        find: 'Maximum \\; Factored \\; Shear \\; Force \\; (V_u) \\; at \\; support',
+        principles: [
+          'NSCP 2015 / ACI 318 Ultimate Load Combination: w_u = 1.2w_D + 1.6w_L',
+          'Statics Equilibrium for Simply Supported Beam: V_{max} = \\frac{w_u L}{2}'
+        ],
+        diagram: {
+          type: 'generic',
+          title: 'Beam Loading & Shear Reaction',
+          labels: {
+            L: '6.0 m',
+            wu: '50 kN/m',
+            Vu: '150 kN'
+          },
+          notes: 'Uniformly Distributed Load across span L with symmetric support reactions.'
+        },
+        steps: [
+          {
+            title: 'Compute Factored Distributed Load (wu)',
+            description: 'Apply the ultimate limit state design load combination factors to the given dead and live loads.',
+            latexFormula: 'w_u = 1.2(15\\text{ kN/m}) + 1.6(20\\text{ kN/m}) = 18 + 32 = 50\\text{ kN/m}',
+            subSteps: [
+              'Factored Dead Load: 1.2 × 15 = 18 kN/m',
+              'Factored Live Load: 1.6 × 20 = 32 kN/m',
+              'Total Factored Load wu = 50 kN/m'
+            ]
+          },
+          {
+            title: 'Calculate Support Shear Reaction (Vu)',
+            description: 'For a simply supported beam under uniform loading, the reaction and maximum shear occur at the supports.',
+            latexFormula: 'V_u = \\frac{w_u \\cdot L}{2} = \\frac{50\\text{ kN/m} \\times 6\\text{ m}}{2} = 150\\text{ kN}',
+            subSteps: [
+              'Total load on beam = wu × L = 50 × 6 = 300 kN',
+              'Reaction at each support = 300 / 2 = 150 kN'
+            ]
+          }
+        ],
+        finalAnswerLatex: 'V_u = 150\\text{ kN}',
+        finalAnswerSummary: 'The maximum factored shear force at the critical support section is 150 kN (Option C).',
+        mnemonic: 'Remember: 1.2D + 1.6L is standard NSCP strength design combo for gravity loads.',
+        tipsAndTricks: [
+          'Always verify if service loads are already factored or need LRFD multipliers.',
+          'Critical section for beam shear in RC design is located at distance d from support face, but maximum reaction is at support center.'
+        ]
+      },
       difficulty: 'hard',
-      category: 'Beams & Shear',
+      category: 'Structural Mechanics',
       pageNumber: 3
     },
     {
       id: 'q2',
       number: '2',
+      type: QuestionType.MCQ,
+      text: 'A $230\\text{ V}$, $60\\text{ Hz}$ single-phase industrial load draws an active power of $P = 12\\text{ kW}$ at a lagging power factor of $\\cos\\theta = 0.80$. Determine the apparent power ($S$) and the reactive power ($Q$) drawn by the load.',
+      choices: [
+        'A. S = 15 kVA, Q = 9 kVAR',
+        'B. S = 12 kVA, Q = 6 kVAR',
+        'C. S = 18 kVA, Q = 12 kVAR',
+        'D. S = 20 kVA, Q = 16 kVAR'
+      ],
+      correctAnswer: 'A',
+      explanation: 'Apparent power S = P / pf = 12 / 0.80 = 15 kVA. Reactive power Q = sqrt(S^2 - P^2) = sqrt(15^2 - 12^2) = sqrt(225 - 144) = sqrt(81) = 9 kVAR.',
+      solution: {
+        given: [
+          'Voltage \\; V = 230\\text{ V}',
+          'Active \\; Power \\; P = 12\\text{ kW}',
+          'Power \\; Factor \\; \\cos\\theta = 0.80 \\; (\\text{lagging})'
+        ],
+        find: 'Apparent \\; Power \\; (S) \\; and \\; Reactive \\; Power \\; (Q)',
+        principles: [
+          'Power Factor: \\cos\\theta = \\frac{P}{S} \\implies S = \\frac{P}{\\cos\\theta}',
+          'Power Triangle: S^2 = P^2 + Q^2 \\implies Q = \\sqrt{S^2 - P^2} = P \\tan\\theta'
+        ],
+        diagram: {
+          type: 'power_triangle',
+          title: 'AC Power Triangle (Lagging Load)',
+          labels: {
+            P: '12 kW',
+            Q: '9 kVAR',
+            S: '15 kVA'
+          },
+          notes: 'P (Real) on horizontal axis, Q (Reactive inductive) on vertical axis, S (Apparent) hypotenuse.'
+        },
+        steps: [
+          {
+            title: 'Calculate Total Apparent Power (S)',
+            description: 'Using the fundamental power factor relationship:',
+            latexFormula: 'S = \\frac{P}{\\text{pf}} = \\frac{12\\text{ kW}}{0.80} = 15.0\\text{ kVA}',
+            subSteps: [
+              'Divide real power in kW by the power factor 0.80',
+              'S = 15 kVA'
+            ]
+          },
+          {
+            title: 'Calculate Inductive Reactive Power (Q)',
+            description: 'Apply the Pythagorean power theorem to the orthogonal power triangle:',
+            latexFormula: 'Q = \\sqrt{S^2 - P^2} = \\sqrt{15^2 - 12^2} = \\sqrt{225 - 144} = \\sqrt{81} = 9.0\\text{ kVAR}',
+            subSteps: [
+              'Angle θ = arccos(0.80) = 36.87°',
+              'Q = S × sin(36.87°) = 15 × 0.60 = 9 kVAR'
+            ]
+          }
+        ],
+        finalAnswerLatex: 'S = 15\\text{ kVA}, \\quad Q = 9\\text{ kVAR}',
+        finalAnswerSummary: 'The apparent power is 15 kVA and reactive power is 9 kVAR lagging (Option A).',
+        mnemonic: 'Remember the 3-4-5 Triangle shortcut: (3×3=9 kVAR, 4×3=12 kW, 5×3=15 kVA) for pf=0.8!',
+        tipsAndTricks: [
+          'Whenever pf = 0.8, sin θ = 0.6. This allows mental math without a scientific calculator!',
+          'Lagging pf indicates inductive load (motors, coils); leading pf indicates capacitive load.'
+        ]
+      },
+      difficulty: 'medium',
+      category: 'Electrical Circuits & Power',
+      pageNumber: 7
+    },
+    {
+      id: 'q3',
+      number: '3',
       type: QuestionType.TRUE_FALSE,
       text: 'According to the National Structural Code of the Philippines (NSCP 2015) Section 420.6.1, the minimum concrete cover for cast-in-place concrete pipes, slabs, or walls permanently exposed to earth or weather is 75 mm.',
       choices: ['True', 'False'],
       correctAnswer: 'True',
       explanation: 'NSCP Section 420.6.1.1 states that for concrete cast against and permanently exposed to earth, the minimum concrete cover must be 75 mm to prevent steel rebar corrosion.',
+      solution: {
+        given: [
+          'Structure type: Cast-in-place concrete',
+          'Exposure: Permanently in contact with earth',
+          'Code: NSCP 2015 Section 420.6.1.1'
+        ],
+        find: 'Minimum specified clear concrete cover requirement',
+        principles: [
+          'Concrete cover protects reinforcement steel against corrosion and provides fire endurance.'
+        ],
+        steps: [
+          {
+            title: 'Verify NSCP Standard Table 420.6.1.1',
+            description: 'For concrete cast against and permanently in contact with ground / earth, minimum clear cover specified is 75 mm.',
+            subSteps: [
+              'Cast against earth: 75 mm (3 inches)',
+              'Exposed to earth/weather: 50 mm (for bars > 16mm) / 40 mm (for ≤ 16mm)',
+              'Not exposed to weather (slabs): 20 mm; beams/columns: 40 mm'
+            ]
+          }
+        ],
+        finalAnswerSummary: 'True: 75 mm is the mandatory minimum cover for concrete permanently cast against earth.',
+        mnemonic: 'Earth Contact = 75 mm (thickest standard cover).'
+      },
       difficulty: 'medium',
       category: 'NSCP Codes',
       pageNumber: 5
-    },
-    {
-      id: 'q3',
-      number: '3',
-      type: QuestionType.IDENTIFICATION,
-      text: 'Who is known as the prominent Filipino structural engineer and academician who served as the main consultant for the development of early editions of the National Structural Code of the Philippines?',
-      correctAnswer: 'Angel Lazaro',
-      explanation: 'Dr. Angel Lazaro Jr. was a pioneer in Philippine civil engineering, heavily contributing to structural standards and NSCP regulations.',
-      difficulty: 'easy',
-      category: 'Engineering History',
-      pageNumber: 1
     },
     {
       id: 'q4',
@@ -151,7 +282,22 @@ const SAMPLE_QUIZ: Quiz = {
       text: 'The structural property of a cross-section that represents its resistance to bending and deflection is known as the Second _____ of Area (also referred to as the Moment of Inertia).',
       correctAnswer: 'Moment',
       explanation: 'The Second Moment of Area (usually denoted by I) is a geometrical property of an area which defines how its points are distributed with regard to an arbitrary axis.',
-      difficulty: 'medium',
+      solution: {
+        find: 'Term completing "Second _____ of Area"',
+        principles: [
+          'I = \\int y^2 dA \\; (\\text{Second Moment of Area / Moment of Inertia})',
+          'Q = \\int y dA \\; (\\text{First Moment of Area - used for shear flow})'
+        ],
+        steps: [
+          {
+            title: 'Identify Area Moments in Mechanics',
+            description: 'The first moment is the static moment (Q = ∫ y dA). The second moment is the moment of inertia (I = ∫ y² dA), describing resistance to flexural bending.',
+            latexFormula: 'I_x = \\int y^2 \\, dA'
+          }
+        ],
+        finalAnswerSummary: 'Missing word is "Moment".'
+      },
+      difficulty: 'easy',
       category: 'Strength of Materials',
       pageNumber: 8
     },
@@ -167,6 +313,21 @@ const SAMPLE_QUIZ: Quiz = {
         { left: 'Short concrete column pedestal', right: 'Crushing and spalling' }
       ],
       explanation: 'Different structural elements fail in distinct modes based on geometry, material ratio, and load directions.',
+      solution: {
+        principles: [
+          'Slender columns fail elastically by Euler buckling before reaching yield strength.',
+          'Over-reinforced beams fail in concrete crushing without yielding of tensile steel (brittle).',
+          'Thin web plates suffer diagonal shear wrinkling/buckling.',
+          'Stocky short columns fail in direct compressive crushing.'
+        ],
+        steps: [
+          {
+            title: 'Correlate Mechanics Principles',
+            description: 'Evaluate slenderness ratio, reinforcement index, and width-to-thickness ratios to map failure modes.'
+          }
+        ],
+        finalAnswerSummary: 'Slender Column → Flexural Buckling; Over-reinforced Beam → Sudden Brittle Compression; Thin Web → Shear Buckling; Short Column → Crushing & Spalling.'
+      },
       difficulty: 'hard',
       category: 'Failure Mechanics',
       pageNumber: 14
@@ -456,6 +617,7 @@ export default function ElectricalReviewPro() {
 
   // Question editing state
   const [editingQuestion, setEditingQuestion] = useState<Partial<Question> | null>(null);
+  const [previewingSolutionId, setPreviewingSolutionId] = useState<string | null>(null);
   const [showAddQuestionModal, setShowAddQuestionModal] = useState<boolean>(false);
   const [quizToDelete, setQuizToDelete] = useState<Quiz | null>(null);
 
@@ -484,15 +646,24 @@ export default function ElectricalReviewPro() {
       
       if (stored) {
         try {
-          const parsed = JSON.parse(stored);
+          let parsed: Quiz[] = JSON.parse(stored);
+          // Check if sample quiz needs updating with rich whiteboard solutions
+          const sampleIdx = parsed.findIndex(qz => qz.id === SAMPLE_QUIZ.id);
+          if (sampleIdx !== -1) {
+            parsed[sampleIdx] = SAMPLE_QUIZ;
+          } else if (parsed.length === 0) {
+            parsed = [SAMPLE_QUIZ];
+          }
           setQuizzes(parsed);
           if (parsed.length > 0) {
             setSelectedQuiz(parsed[0]);
           }
+          localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify(parsed));
         } catch (e) {
           console.error('Error loading quizzes:', e);
           setQuizzes([SAMPLE_QUIZ]);
           setSelectedQuiz(SAMPLE_QUIZ);
+          localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify([SAMPLE_QUIZ]));
         }
       } else {
         // Seed with sample quiz
@@ -4217,15 +4388,14 @@ export default function ElectricalReviewPro() {
                                 </div>
                               </div>
 
-                              {q.explanation && (
-                                <div className="mt-4 text-sm md:text-base text-slate-100 bg-indigo-950/35 border border-indigo-500/30 p-5 rounded-2xl font-normal leading-relaxed shadow-sm">
-                                  <div className="flex items-center gap-2 text-indigo-300 font-extrabold mb-2 uppercase tracking-wider text-xs">
-                                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                                    <span>Explanation & Context</span>
-                                  </div>
-                                  <div className="text-slate-200 font-medium whitespace-pre-line">
-                                    <MathRenderer text={q.explanation} />
-                                  </div>
+                              {(q.explanation || q.solution) && (
+                                <div className="mt-4">
+                                  <ExplanationVisualizer
+                                    solution={q.solution || undefined}
+                                    standardExplanation={q.explanation || ''}
+                                    questionText={q.text}
+                                    correctAnswerText={String(q.correctAnswer || '')}
+                                  />
                                 </div>
                               )}
                             </div>
@@ -4579,21 +4749,22 @@ export default function ElectricalReviewPro() {
                                  return null;
                                })()}
  
-                               {/* Explanation & Rationale for Instant Review */}
+                               {/* Explanation & Whiteboard Solution for Instant Review */}
                                {(() => {
                                  const isChecked = showInstantFeedback && checkedQuestions[q.id];
-                                 if (isChecked && q.explanation) {
+                                 if (isChecked && (q.explanation || q.solution)) {
                                    return (
                                      <motion.div
                                        initial={{ opacity: 0, y: 5 }}
                                        animate={{ opacity: 1, y: 0 }}
-                                       className="mt-6 p-6 md:p-8 rounded-2xl bg-indigo-950/35 border-2 border-indigo-500/25 text-sm md:text-base text-slate-100 leading-relaxed shadow-lg"
+                                       className="mt-6"
                                      >
-                                       <div className="flex items-center gap-2.5 text-indigo-300 font-extrabold mb-3 uppercase tracking-wider text-xs md:text-sm">
-                                         <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                                         <span>Explanation & Context</span>
-                                       </div>
-                                       <div className="mt-2 text-xs md:text-sm lg:text-base leading-relaxed text-slate-200 font-medium whitespace-pre-line"><MathRenderer text={q.explanation} /></div>
+                                       <ExplanationVisualizer
+                                         solution={q.solution || undefined}
+                                         standardExplanation={q.explanation || ''}
+                                         questionText={q.text}
+                                         correctAnswerText={String(q.correctAnswer || '')}
+                                       />
                                      </motion.div>
                                    );
                                  }
@@ -4855,16 +5026,34 @@ export default function ElectricalReviewPro() {
                           </div>
                         ) : (
                           // Quick Read-Only Answer Info
-                          <div className="text-xs text-slate-400 border-t border-white/5 pt-3 flex flex-col gap-1 bg-[#0E0E11] p-2.5 rounded-xl mt-1">
-                            <div className="flex items-center justify-between">
+                          <div className="text-xs text-slate-400 border-t border-white/5 pt-3 flex flex-col gap-2 bg-[#0E0E11] p-3 rounded-xl mt-1">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
                               <p>Correct answer: <strong className="text-indigo-400">{String(q.correctAnswer || 'N/A')}</strong></p>
-                              {q.difficulty && <p className="uppercase font-bold text-[10px] text-slate-500">Difficulty: {q.difficulty}</p>}
+                              <div className="flex items-center gap-2">
+                                {(q.solution || q.explanation) && (
+                                  <button
+                                    onClick={() => setPreviewingSolutionId(previewingSolutionId === q.id ? null : q.id)}
+                                    className="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 flex items-center gap-1 transition-all cursor-pointer"
+                                  >
+                                    <Sparkles className="w-3 h-3 text-indigo-400" />
+                                    <span>{previewingSolutionId === q.id ? 'Hide Whiteboard' : 'View Whiteboard Solution'}</span>
+                                  </button>
+                                )}
+                                {q.difficulty && <span className="uppercase font-bold text-[10px] text-slate-500">Difficulty: {q.difficulty}</span>}
+                              </div>
                             </div>
                             {q.choices && q.choices.length > 0 && (
-                              <p className="line-clamp-1 mt-1">Choices: {q.choices.join(' | ')}</p>
+                              <p className="line-clamp-1 mt-0.5 text-slate-400">Choices: {q.choices.join(' | ')}</p>
                             )}
-                            {q.explanation && (
-                              <p className="mt-1 text-[11px] text-slate-500 italic truncate">Explanation: {q.explanation}</p>
+                            {previewingSolutionId === q.id && (q.solution || q.explanation) && (
+                              <div className="mt-2 pt-2 border-t border-white/10">
+                                <ExplanationVisualizer
+                                  solution={q.solution || undefined}
+                                  standardExplanation={q.explanation || ''}
+                                  questionText={q.text}
+                                  correctAnswerText={String(q.correctAnswer || '')}
+                                />
+                              </div>
                             )}
                           </div>
                         )}
@@ -5078,16 +5267,15 @@ export default function ElectricalReviewPro() {
                                     </div>
                                   )}
 
-                                  {/* Explanation banner */}
-                                  {q.explanation && (
-                                    <div className="mt-2 text-xs md:text-sm text-slate-200 bg-indigo-950/35 border border-indigo-500/25 p-4 rounded-xl font-medium leading-relaxed">
-                                      <div className="flex items-center gap-2.5 text-indigo-300 font-extrabold mb-1.5 uppercase tracking-wider text-[10px]">
-                                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                                        <span>Explanation & Context</span>
-                                      </div>
-                                      <div className="text-slate-300 whitespace-pre-line">
-                                        <MathRenderer text={q.explanation} />
-                                      </div>
+                                  {/* Whiteboard & Detailed Solution */}
+                                  {(q.explanation || q.solution) && (
+                                    <div className="mt-3">
+                                      <ExplanationVisualizer
+                                        solution={q.solution || undefined}
+                                        standardExplanation={q.explanation || ''}
+                                        questionText={q.text}
+                                        correctAnswerText={String(q.correctAnswer || '')}
+                                      />
                                     </div>
                                   )}
                                 </div>

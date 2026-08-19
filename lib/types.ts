@@ -16,6 +16,31 @@ export interface MatchingPair {
   right: string;
 }
 
+export interface VisualDiagramData {
+  type: 'circuit' | 'power_triangle' | 'phasor' | 'transformer' | 'pythagoras' | 'beam' | 'generic';
+  title?: string;
+  labels?: Record<string, string | number>;
+  values?: Record<string, string | number>;
+  notes?: string;
+}
+
+export interface WhiteboardSolution {
+  given?: string[];
+  find?: string;
+  principles?: string[];
+  diagram?: VisualDiagramData;
+  steps: {
+    title: string;
+    description: string;
+    latexFormula?: string;
+    subSteps?: string[];
+  }[];
+  finalAnswerLatex?: string;
+  finalAnswerSummary?: string;
+  tipsAndTricks?: string[];
+  mnemonic?: string;
+}
+
 export interface Question {
   id: string;
   type: QuestionType;
@@ -27,6 +52,7 @@ export interface Question {
   matchingPairs?: MatchingPair[] | null; // For MATCHING type
   tableData?: string[][] | null; // For table-based questions
   explanation?: string | null;
+  solution?: WhiteboardSolution | null; // Detailed step-by-step whiteboard solution
   category?: string | null;
   subject?: string | null;
   difficulty?: 'easy' | 'medium' | 'hard' | null;

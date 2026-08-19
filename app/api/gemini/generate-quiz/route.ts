@@ -16,7 +16,7 @@ async function generateContentWithRetryAndFallback(params: {
   contents: any;
   config: any;
 }) {
-  const models = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  const models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
   const maxRetries = 2;
   let lastError: any = null;
 
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Define the system instructions and constraints to support BOTH question extraction and high-quality question generation
-    const systemInstruction = `You are an elite, high-accuracy Exam Extraction and Intelligent Quiz Generation AI with expert pedagogical design for Mathematics, Electrical Engineering, Physics, and Technical Sciences.
+    const systemInstruction = `You are an elite, high-accuracy Exam Extraction and Intelligent Quiz Generation AI.
 Your primary directive is to process the provided document text (and any embedded images) and produce a comprehensive, complete quiz.
 
 CRITICAL INSTRUCTIONS:
@@ -73,28 +73,14 @@ CRITICAL INSTRUCTIONS:
    - If the document already contains pre-written questions (e.g., test sheets, worksheets, question banks, reviewers), you MUST extract 100% of them with perfect fidelity. Do NOT skip, summarize, or truncate. If there are 30, 50, 80, 100 or more questions, you MUST extract ALL of them sequentially. There is NO upper limit or artificial cap on the number of questions.
    - If the document contains study guides, textbooks, chapters, summaries, slides, or notes (which do not have explicit questions, or have very few), analyze the content deeply and GENERATE a high-quality quiz of at least 15 to 25 questions that comprehensively tests the core concepts, terms, formulas, and facts in the text.
    - If the document contains a mix of both, extract all existing questions AND generate additional highly relevant questions from the informational content to form a complete, robust quiz.
-
-2. HIGHLY VISUAL, INTUITIVE & STEP-BY-STEP EXPLANATIONS (WHITEBOARD TEACHER FORMAT):
-   Whenever a concept can be understood more clearly through a visual representation, AUTOMATICALLY include an appropriate diagram, drawing, graph, schematic, illustration, or visual step-by-step representation.
-   - STRUCTURE: Every explanation MUST follow this exact, teacher-on-a-whiteboard structure:
-     **Given:** Clearly state given values, variables, and units ($V = 230\\text{ V}$, $R = 10\\,\\Omega$, etc.).
-     **Diagram:** DRAW or visualize the problem BEFORE calculating! Include a clean, high-contrast ASCII/Unicode or text schematic (circuit schematic, right triangle, phasor diagram, transformer coils, beam load, free-body diagram, power triangle, or waveform).
-     **What you're seeing:** Briefly explain the diagram, what the user should notice, and how the visual connects to the concept or calculation.
-     **Formula:** State governing formulas and principles in standard LaTeX (e.g. $V = I \\times R$, $S = \\sqrt{P^2 + Q^2}$, $a^2 + b^2 = c^2$).
-     **Substitution:** Show given values mapped into the formula variables step-by-step.
-     **Calculation:** Complete step-by-step calculation with correct arithmetic and units.
-     **Answer:** Highlight the final calculated answer and letter choice.
-     **Interpretation:** Explain WHY the answer makes sense, the underlying physical principle, and why other options fail.
-     **Memory Aid:** Provide a visual memory aid (e.g., formula triangle $V / (I \\times R)$, mnemonic, or quick rule of thumb).
-
-   - PRIORITIZE VISUALIZATIONS FOR:
-     * Electrical: Ohm's Law, Series/Parallel circuits, AC/DC, Transformers, Motors/Generators, Phasor diagrams (120° displacement), Waveforms, Power Factor & Power Triangle (P, Q, S), Three-Phase Wye/Delta, Magnetic circuits & flux, Feeder voltage drop.
-     * Mathematics: Right triangles, Pythagorean theorem, Coordinate graphs, Trigonometric unit circles, Calculus areas, Algebra equation flows.
-     * Physics & Mechanics: Free-body diagrams, Force vectors, Beam shear/moment loads, Projectiles, Kinematics.
-
+2. ANSWER SELECTION & COMPREHENSIVE EXPLANATIONS:
+   - For extracted questions: Detect bold letters, answer keys, solutions, or asterisks. Cross-reference any answer key (usually at the end) and pair it with the corresponding question.
+   - For generated questions: Always select a mathematically or factually correct answer.
+   - For ALL questions, provide a comprehensive, step-by-step solution in the 'explanation' field.
+     - For computational questions: Include the complete mathematical formula(s), clearly define each variable, substitute the given values, perform the calculations in the correct order, and present the final answer with appropriate units. Use proper LaTeX formatting.
+     - For conceptual/theory questions: Provide a concise but complete explanation that justifies why the correct answer is correct and why other choices are incorrect. The goal is to make it a complete learning resource.
 3. IMAGES & DIAGRAMS:
    - If you encounter image references (like [IMAGE_REF_0], [IMAGE_REF_1]) in the text, look at the corresponding images provided in the multimodal context. Preserve the reference tags (e.g., "[IMAGE_REF_0]") inside the question text or map them correctly to the question metadata.
-
 4. TYPES OF QUESTIONS:
    - MCQ: Multiple choice questions. Generate or extract 4 clear options (A, B, C, D) and parse them into the 'choices' array.
    - TRUE_FALSE: True or False questions.
@@ -103,14 +89,13 @@ CRITICAL INSTRUCTIONS:
    - FILL_IN_BLANK: Text with blank spaces (e.g. "_____").
    - MATCHING: Matching left items to right items. Pass pairs in the 'matchingPairs' field.
    - SITUATIONAL / COMPUTATIONAL / ESSAY: Scenario-based or numerical calculation questions.
-
 5. FORMATTING & MATHEMATICAL EXPRESSIONS (STRICT LATEX):
    - You MUST extract 100% of all mathematical questions containing formulas, symbols, fractions, exponents, subscripts, superscripts, matrices, integrals, summations, Greek letters, square roots, vectors, and other notation WITHOUT any loss of formatting or detail.
    - Represent EVERY mathematical expression, formula, symbol, equation, and notation strictly using standard LaTeX formatting.
    - Use standard inline LaTeX wrapped in single dollar signs like '$...$' for inline notation, variables, and small expressions (e.g., '$E = mc^2$', '$\\frac{a}{b}$', '$\\alpha$', '$\\sqrt{x^2+y^2}$', '$x_i$', or '$y^2$').
-   - Use block/standalone LaTeX wrapped in double dollar signs like '$$...$$' for larger equations, standalone expressions, matrices, integrals, or complex summations.
+   - Use block/standalone LaTeX wrapped in double dollar signs like '$$...$$' for larger equations, standalone expressions, matrices, integrals, or complex summations (e.g., '$$\\int_a^b f(x)\\,dx$$', or '$$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$$').
    - Double-escape all backslashes in JSON (e.g., write '\\\\frac{a}{b}' or '\\\\alpha') to ensure it is valid JSON. NEVER output a raw unescaped backslash like '\\frac'.
-
+   - Ensure absolutely no mathematical symbols are converted into plain text, omitted, corrupted, or reformatted incorrectly during extraction. The rendered output must be visually and structurally identical to the source document.
 6. MULTILINGUAL SUPPORT:
    - Fully support English, Filipino, and Taglish/mixed-language documents with perfect OCR and translation fidelity.`;
 
@@ -257,6 +242,58 @@ Document Content:
               pageNumber: {
                 type: Type.INTEGER,
                 description: 'The page number in the original document where this question was located (if available/inferred).',
+              },
+              solution: {
+                type: Type.OBJECT,
+                description: 'Optional structured whiteboard step-by-step solution derivation for calculations and formulas.',
+                properties: {
+                  given: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'List of given parameters or values with LaTeX notation.',
+                  },
+                  find: {
+                    type: Type.STRING,
+                    description: 'The variable or quantity to solve for.',
+                  },
+                  principles: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: 'Governing formulas or laws in LaTeX.',
+                  },
+                  diagram: {
+                    type: Type.OBJECT,
+                    description: 'Optional diagram metadata (e.g. circuit, power_triangle, beam, generic).',
+                    properties: {
+                      type: { type: Type.STRING },
+                      title: { type: Type.STRING },
+                      notes: { type: Type.STRING },
+                    },
+                  },
+                  steps: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        title: { type: Type.STRING },
+                        description: { type: Type.STRING },
+                        latexFormula: { type: Type.STRING },
+                        subSteps: {
+                          type: Type.ARRAY,
+                          items: { type: Type.STRING },
+                        },
+                      },
+                      required: ['title', 'description'],
+                    },
+                  },
+                  finalAnswerLatex: { type: Type.STRING },
+                  finalAnswerSummary: { type: Type.STRING },
+                  mnemonic: { type: Type.STRING },
+                  tipsAndTricks: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                  },
+                },
               },
             },
             required: ['number', 'text', 'type'],
