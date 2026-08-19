@@ -2,19 +2,23 @@ import React from 'react';
 import katex from 'katex';
 
 interface MathRendererProps {
-  text: string;
+  text?: string;
+  content?: string;
+  className?: string;
+  inline?: boolean;
 }
 
-export const MathRenderer: React.FC<MathRendererProps> = ({ text }) => {
-  if (!text) return null;
+export const MathRenderer: React.FC<MathRendererProps> = ({ text, content, className = '', inline = false }) => {
+  const targetText = text ?? content ?? '';
+  if (!targetText) return null;
 
   // Regex pattern to split math equations from standard text
   // Supports $$...$$, $...$, \\[...\\] and \\(...\\) delimiters
   const pattern = /(\$\$(?:[^\$]|\\\$)*\$\$|\$(?:[^\$]|\\\$)*\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\))/g;
-  const parts = text.split(pattern);
+  const parts = targetText.split(pattern);
 
   return (
-    <span>
+    <span className={className}>
       {parts.map((part, index) => {
         if (!part) return null;
 

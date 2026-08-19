@@ -325,7 +325,7 @@ export default function ElectricalReviewPro() {
     }, 1000);
 
     return () => clearInterval(intervalId);
-  }, [activeMode, quizAttempt?.status, quizAttempt?.startedAt, quizAttempt?.timeLimit]);
+  }, [activeMode, quizAttempt?.status, quizAttempt?.startedAt, quizAttempt?.timeLimit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-submit when time is up
   useEffect(() => {
