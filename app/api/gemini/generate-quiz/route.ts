@@ -16,28 +16,59 @@ async function generateContentWithRetryAndFallback(params: {
   contents: any;
   config: any;
 }) {
-  const models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
-  const maxRetries = 2;
+  const models = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  const maxRetries = 1;
   let lastError: any = null;
 
   for (const model of models) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      let timeoutId: any;
       try {
         console.log(`Attempting quiz generation with model ${model} (attempt ${attempt + 1}/${maxRetries + 1})...`);
-        const response = await ai.models.generateContent({
+        
+        // Timeout of 24 seconds per API call to prevent Gateway 504 timeouts and switch to fallback models gracefully
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('TIMEOUT_EXPIRED')), 24000);
+        });
+
+        const responsePromise = ai.models.generateContent({
           model: model,
           contents: params.contents,
           config: params.config,
         });
 
-        if (response && response.text) {
+        const response = await Promise.race([responsePromise, timeoutPromise]) as any;
+        clearTimeout(timeoutId);
+
+        const extractedText = response?.text || 
+          response?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join('');
+
+        if (extractedText && extractedText.trim().length > 0) {
           console.log(`Successfully generated quiz using model ${model}`);
-          return response;
+          return { ...response, text: extractedText };
         }
-        throw new Error('Gemini returned an empty response.');
+
+        const finishReason = response?.candidates?.[0]?.finishReason;
+        console.warn(`Model ${model} returned empty response. Finish reason: ${finishReason}`);
+        throw new Error(`Gemini returned an empty response (finishReason: ${finishReason || 'UNKNOWN'}).`);
       } catch (err: any) {
+        if (timeoutId) clearTimeout(timeoutId);
         lastError = err;
-        console.error(`Error with model ${model} on attempt ${attempt + 1}:`, err);
+        
+        const errStr = String(err?.message || err);
+        console.error(`Error with model ${model} on attempt ${attempt + 1}:`, errStr);
+
+        // If it's a timeout, break immediately to the next model to preserve time budget
+        if (errStr.includes('TIMEOUT_EXPIRED')) {
+          console.warn(`Model ${model} timed out after 24s. Switching models immediately...`);
+          break;
+        }
+
+        // If it's a 404 or unsupported model error, break early to next model
+        if (errStr.includes('404') || errStr.includes('not found') || errStr.includes('unsupported')) {
+          console.warn(`Model ${model} not available, switching immediately.`);
+          break;
+        }
 
         if (attempt === maxRetries) {
           console.warn(`Model ${model} failed after ${maxRetries + 1} attempts. Falling back to next model if available...`);

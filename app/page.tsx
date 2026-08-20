@@ -1467,12 +1467,26 @@ export default function BoardExamReviewPro() {
       body: formData
     });
 
-    if (!res.ok) {
-      const errData = await res.json();
-      throw new Error(errData.error || 'Server parsing failed');
+    let data: any = null;
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      data = await res.json();
+    } else {
+      const rawText = await res.text();
+      if (!res.ok) {
+        const stripped = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        throw new Error(`Server returned error ${res.status}: ${stripped.slice(0, 160) || res.statusText}`);
+      }
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error('Server returned an unparseable response.');
+      }
     }
 
-    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || `Server parsing failed (status ${res.status})`);
+    }
     
     // Process Mammoth HTML to extract embedded base64 images
     let rawHtml = data.html;
@@ -1569,14 +1583,29 @@ export default function BoardExamReviewPro() {
         })
       });
 
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'AI generation failed');
+      let data: any = null;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const rawText = await res.text();
+        if (!res.ok) {
+          const stripped = rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          throw new Error(`Server returned error ${res.status}: ${stripped.slice(0, 160) || res.statusText}`);
+        }
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          throw new Error('Server returned an unparseable response.');
+        }
       }
 
-      const data = await res.json();
-      if (!data.success || !data.quiz) {
-        throw new Error('Invalid quiz response from AI');
+      if (!res.ok) {
+        throw new Error(data?.error || `AI generation failed (status ${res.status})`);
+      }
+
+      if (!data?.success || !data?.quiz) {
+        throw new Error('Invalid quiz response structure received from AI');
       }
 
       // Map base64 image placeholders back to their full data using the flat global array
