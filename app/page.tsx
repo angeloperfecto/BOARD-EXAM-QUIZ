@@ -1708,7 +1708,12 @@ export default function BoardExamReviewPro() {
       setActiveMode('edit'); // Jump directly to Question Manager to review and edit
     } catch (err: any) {
       console.error('Quiz Generation Error:', err);
-      showToast(`Generation failed: ${err.message || err}. Please try again or provide smaller text portions.`, 'error');
+      let errorMsg = err.message || String(err);
+      if (errorMsg.includes('QUOTA_EXCEEDED') || errorMsg.includes('Quota exceeded')) {
+        showToast('Quota Exceeded: You have reached the daily free-tier limit for AI generations. Please try again tomorrow or provide an API key.', 'error');
+      } else {
+        showToast(`Generation failed: ${errorMsg}. Please try again or provide smaller text portions.`, 'error');
+      }
     } finally {
       setIsGenerating(false);
       setParsingStatus('');

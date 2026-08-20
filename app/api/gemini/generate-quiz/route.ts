@@ -16,7 +16,7 @@ async function generateContentWithRetryAndFallback(params: {
   contents: any;
   config: any;
 }) {
-  const models = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
+  const models = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
   const maxRetries = 1;
   let lastError: any = null;
 
@@ -24,7 +24,7 @@ async function generateContentWithRetryAndFallback(params: {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       let timeoutId: any;
       try {
-        console.log(`Generating quiz with ${model} (attempt ${attempt + 1})...`);
+        console.log(`Attempting quiz generation with model ${model} (attempt ${attempt + 1}/${maxRetries + 1})...`);
         
         // Timeout of 24 seconds per API call to prevent Gateway 504 timeouts and switch to fallback models gracefully
         const timeoutPromise = new Promise((_, reject) => {
@@ -44,52 +44,57 @@ async function generateContentWithRetryAndFallback(params: {
           response?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join('');
 
         if (extractedText && extractedText.trim().length > 0) {
-          console.log(`Successfully generated quiz with ${model}`);
+          console.log(`Successfully generated quiz using model ${model}`);
           return { ...response, text: extractedText };
         }
 
         const finishReason = response?.candidates?.[0]?.finishReason;
-        throw new Error(`Empty response received (finishReason: ${finishReason || 'UNKNOWN'})`);
+        console.warn(`Model ${model} returned empty response. Finish reason: ${finishReason}`);
+        throw new Error(`Gemini returned an empty response (finishReason: ${finishReason || 'UNKNOWN'}).`);
       } catch (err: any) {
         if (timeoutId) clearTimeout(timeoutId);
         lastError = err;
         
-        const errStr = String(err?.message || err || '');
+        const errStr = String(err?.message || err);
         const lowerErr = errStr.toLowerCase();
+        console.warn(`Transient issue with model ${model} on attempt ${attempt + 1}:`, errStr);
 
         // If it's a timeout, break immediately to the next model to preserve time budget
         if (lowerErr.includes('timeout_expired')) {
-          console.log(`Model ${model} timed out. Switching to next fallback model...`);
+          console.warn(`Model ${model} timed out after 24s. Switching models immediately...`);
           break;
         }
 
-        // If the model is experiencing high demand (503/UNAVAILABLE) or rate limits (429/RESOURCE_EXHAUSTED), break immediately to fallback model
+        // Detect hard quota limits and fail fast rather than exhausting retries
+        if (lowerErr.includes('429') || lowerErr.includes('quota exceeded') || lowerErr.includes('resource_exhausted')) {
+          console.error(`Fatal Quota Exceeded on ${model}.`);
+          throw new Error('QUOTA_EXCEEDED: You have exceeded your current quota for the Gemini API. Please check your plan and billing details, or try again later.');
+        }
+
+        // If the model is experiencing high demand (503/UNAVAILABLE), break immediately to fallback model
         if (
           lowerErr.includes('503') || 
           lowerErr.includes('unavailable') || 
-          lowerErr.includes('429') || 
-          lowerErr.includes('resource_exhausted') ||
-          lowerErr.includes('high demand') ||
-          lowerErr.includes('limit') ||
-          lowerErr.includes('quota')
+          lowerErr.includes('high demand')
         ) {
-          console.log(`Model ${model} currently experiencing high demand. Seamlessly switching to next fallback model...`);
+          console.warn(`Model ${model} is experiencing high demand. Switching models immediately...`);
           break;
         }
 
         // If it's a 404 or unsupported model error, break early to next model
         if (lowerErr.includes('404') || lowerErr.includes('not found') || lowerErr.includes('unsupported')) {
-          console.log(`Model ${model} endpoint unavailable. Switching to next model...`);
+          console.warn(`Model ${model} not available, switching immediately.`);
           break;
         }
 
         if (attempt === maxRetries) {
-          console.log(`Switching from ${model} to next fallback model...`);
+          console.warn(`Model ${model} failed after ${maxRetries + 1} attempts. Falling back to next model if available...`);
           break;
         }
 
         // Exponential backoff
         const delay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+        console.log(`Waiting ${Math.round(delay)}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
