@@ -1395,7 +1395,7 @@ export default function BoardExamReviewPro() {
     setUploadProgress(100);
   };
 
-  // Browser-side PDF extractor using dynamic PDF.js
+  // Browser-side PDF extractor using dynamic PDF.js with spatial line sorting and OCR
   const parsePdfFile = async (file: File, logId: string) => {
     const pdfjsLib = await loadPDFJS();
     if (!pdfjsLib) throw new Error('PDF.js library could not be loaded dynamically.');
@@ -1409,32 +1409,87 @@ export default function BoardExamReviewPro() {
     let extractedText = '';
     const extractedImages: string[] = [];
 
+    // Helper to sort and format text items by lines (and handle 2-column layouts)
+    const extractStructuredPageText = (items: any[], pageWidth: number): string => {
+      if (!items || items.length === 0) return '';
+
+      // Normalize items with coordinates
+      const textItems = items.map(item => ({
+        str: item.str || '',
+        x: item.transform ? item.transform[4] : 0,
+        y: item.transform ? item.transform[5] : 0,
+        width: item.width || 0,
+        height: item.height || 0
+      })).filter(it => it.str.trim().length > 0);
+
+      if (textItems.length === 0) return '';
+
+      // Check if page appears to have a 2-column layout
+      const midX = pageWidth / 2;
+      const leftItems = textItems.filter(it => it.x + it.width < midX + 20);
+      const rightItems = textItems.filter(it => it.x >= midX - 20);
+      const isTwoColumn = leftItems.length > 8 && rightItems.length > 8 && (leftItems.length + rightItems.length) / textItems.length > 0.75;
+
+      const formatColumnLines = (colItems: typeof textItems): string => {
+        // Sort top-to-bottom (PDF y is 0 at bottom, so larger y is higher up)
+        colItems.sort((a, b) => b.y - a.y || a.x - b.x);
+
+        const lines: { y: number; items: typeof textItems }[] = [];
+        const yTolerance = 4; // px tolerance for same line
+
+        colItems.forEach(item => {
+          const existingLine = lines.find(l => Math.abs(l.y - item.y) <= yTolerance);
+          if (existingLine) {
+            existingLine.items.push(item);
+          } else {
+            lines.push({ y: item.y, items: [item] });
+          }
+        });
+
+        // Format each line sorted left-to-right
+        return lines.map(line => {
+          line.items.sort((a, b) => a.x - b.x);
+          return line.items.map(it => it.str).join(' ');
+        }).join('\n');
+      };
+
+      if (isTwoColumn) {
+        const leftColText = formatColumnLines(leftItems);
+        const rightColText = formatColumnLines(rightItems);
+        return `${leftColText}\n\n${rightColText}`;
+      } else {
+        return formatColumnLines(textItems);
+      }
+    };
+
     for (let p = 1; p <= numPages; p++) {
-      setParsingStatus(`Extracting page ${p} / ${numPages} from PDF...`);
+      setParsingStatus(`Scanning page ${p} / ${numPages} from PDF...`);
       setUploadProgress(Math.floor((p / numPages) * 90));
 
       const page = await pdf.getPage(p);
+      const viewport = page.getViewport({ scale: 1.0 });
       const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      
+      const structuredPageText = extractStructuredPageText(textContent.items, viewport.width);
+      const rawText = textContent.items.map((item: any) => item.str).join(' ');
+      const effectiveText = structuredPageText.trim().length > 0 ? structuredPageText : rawText;
 
-      // Add simple page marker so Gemini can associate page numbers
-      extractedText += `\n[PAGE_NUMBER_MARKER_${p}]\n${pageText}\n`;
+      // Add page marker so Gemini can associate page numbers and chunk accurately
+      extractedText += `\n[PAGE_NUMBER_MARKER_${p}]\n${effectiveText}\n`;
 
-      // Check if page has images or diagrams (empty text means scanned)
-      if (pageText.trim().length < 30) {
-        // Scanned page - render page to canvas so Gemini can perform high-fidelity visual OCR!
-        setParsingStatus(`Performing OCR check on page ${p}...`);
-        const viewport = page.getViewport({ scale: 1.5 });
+      // Check if page has low text or visual questions (needs high-res visual OCR)
+      if (effectiveText.trim().length < 100) {
+        setParsingStatus(`Capturing visual OCR snapshot on page ${p}...`);
+        const ocrViewport = page.getViewport({ scale: 1.8 });
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        await page.render({ canvasContext: context!, viewport }).promise;
-        const pageImageBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        canvas.height = ocrViewport.height;
+        canvas.width = ocrViewport.width;
+        await page.render({ canvasContext: context!, viewport: ocrViewport }).promise;
+        const pageImageBase64 = canvas.toDataURL('image/jpeg', 0.85);
         
-        // Save page as image reference
         extractedImages.push(pageImageBase64);
-        extractedText += `\n[IMAGE_REF_${extractedImages.length - 1}] (Scanned page ${p} diagram/formulas representation)\n`;
+        extractedText += `\n[IMAGE_REF_${extractedImages.length - 1}] (Visual scan of page ${p} for OCR extraction of questions and diagrams)\n`;
       }
 
       setExtractionLogs(prev => prev.map(l => l.id === logId ? { ...l, processedPages: p } : l));

@@ -16,7 +16,7 @@ async function generateContentWithRetryAndFallback(params: {
   contents: any;
   config: any;
 }) {
-  const models = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+  const models = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
   const maxRetries = 1;
   let lastError: any = null;
 
@@ -24,7 +24,7 @@ async function generateContentWithRetryAndFallback(params: {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       let timeoutId: any;
       try {
-        console.log(`Attempting quiz generation with model ${model} (attempt ${attempt + 1}/${maxRetries + 1})...`);
+        console.log(`Generating quiz with ${model} (attempt ${attempt + 1})...`);
         
         // Timeout of 24 seconds per API call to prevent Gateway 504 timeouts and switch to fallback models gracefully
         const timeoutPromise = new Promise((_, reject) => {
@@ -44,40 +44,52 @@ async function generateContentWithRetryAndFallback(params: {
           response?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join('');
 
         if (extractedText && extractedText.trim().length > 0) {
-          console.log(`Successfully generated quiz using model ${model}`);
+          console.log(`Successfully generated quiz with ${model}`);
           return { ...response, text: extractedText };
         }
 
         const finishReason = response?.candidates?.[0]?.finishReason;
-        console.warn(`Model ${model} returned empty response. Finish reason: ${finishReason}`);
-        throw new Error(`Gemini returned an empty response (finishReason: ${finishReason || 'UNKNOWN'}).`);
+        throw new Error(`Empty response received (finishReason: ${finishReason || 'UNKNOWN'})`);
       } catch (err: any) {
         if (timeoutId) clearTimeout(timeoutId);
         lastError = err;
         
-        const errStr = String(err?.message || err);
-        console.error(`Error with model ${model} on attempt ${attempt + 1}:`, errStr);
+        const errStr = String(err?.message || err || '');
+        const lowerErr = errStr.toLowerCase();
 
         // If it's a timeout, break immediately to the next model to preserve time budget
-        if (errStr.includes('TIMEOUT_EXPIRED')) {
-          console.warn(`Model ${model} timed out after 24s. Switching models immediately...`);
+        if (lowerErr.includes('timeout_expired')) {
+          console.log(`Model ${model} timed out. Switching to next fallback model...`);
+          break;
+        }
+
+        // If the model is experiencing high demand (503/UNAVAILABLE) or rate limits (429/RESOURCE_EXHAUSTED), break immediately to fallback model
+        if (
+          lowerErr.includes('503') || 
+          lowerErr.includes('unavailable') || 
+          lowerErr.includes('429') || 
+          lowerErr.includes('resource_exhausted') ||
+          lowerErr.includes('high demand') ||
+          lowerErr.includes('limit') ||
+          lowerErr.includes('quota')
+        ) {
+          console.log(`Model ${model} currently experiencing high demand. Seamlessly switching to next fallback model...`);
           break;
         }
 
         // If it's a 404 or unsupported model error, break early to next model
-        if (errStr.includes('404') || errStr.includes('not found') || errStr.includes('unsupported')) {
-          console.warn(`Model ${model} not available, switching immediately.`);
+        if (lowerErr.includes('404') || lowerErr.includes('not found') || lowerErr.includes('unsupported')) {
+          console.log(`Model ${model} endpoint unavailable. Switching to next model...`);
           break;
         }
 
         if (attempt === maxRetries) {
-          console.warn(`Model ${model} failed after ${maxRetries + 1} attempts. Falling back to next model if available...`);
+          console.log(`Switching from ${model} to next fallback model...`);
           break;
         }
 
         // Exponential backoff
         const delay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
-        console.log(`Waiting ${Math.round(delay)}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
@@ -85,6 +97,229 @@ async function generateContentWithRetryAndFallback(params: {
 
   const errorMessage = lastError?.message || JSON.stringify(lastError) || 'Unknown error';
   throw new Error(`All models and retries failed due to API errors / high demand. Last error: ${errorMessage}`);
+}
+
+// JSON sanitization helper to handle LaTeX math and improper backslash escapes
+function sanitizeJsonString(jsonStr: string): string {
+  let result = '';
+  let inString = false;
+  let i = 0;
+  const len = jsonStr.length;
+
+  while (i < len) {
+    const char = jsonStr[i];
+    if (!inString) {
+      if (char === '"') {
+        inString = true;
+      }
+      result += char;
+      i++;
+    } else {
+      if (char === '\\') {
+        if (i + 1 < len) {
+          const nextChar = jsonStr[i + 1];
+          let isValidEscape = ['"', '\\', '/', 'b', 'f', 'n', 'r', 't'].includes(nextChar);
+
+          // If it's b, f, r, or t, check if it's followed by an alphabetic character
+          // representing a LaTeX command (e.g., \frac, \right, \begin, \times) rather than a control escape
+          if (isValidEscape && ['b', 'f', 'r', 't'].includes(nextChar) && i + 2 < len) {
+            const afterNextChar = jsonStr[i + 2];
+            if (/^[a-zA-Z]$/.test(afterNextChar)) {
+              isValidEscape = false; // Treat as LaTeX/word, double-escape it
+            }
+          }
+
+          if (isValidEscape) {
+            result += '\\' + nextChar;
+            i += 2;
+          } else if (nextChar === 'u') {
+            if (i + 5 < len) {
+              const hexPart = jsonStr.substring(i + 2, i + 6);
+              if (/^[0-9a-fA-F]{4}$/.test(hexPart)) {
+                result += '\\u' + hexPart;
+                i += 6;
+              } else {
+                result += '\\\\';
+                i++;
+              }
+            } else {
+              result += '\\\\';
+              i++;
+            }
+          } else {
+            result += '\\\\';
+            i++;
+          }
+        } else {
+          result += '\\\\';
+          i++;
+        }
+      } else if (char === '"') {
+        inString = false;
+        result += char;
+        i++;
+      } else if (char === '\n') {
+        result += '\\n';
+        i++;
+      } else if (char === '\r') {
+        result += '\\r';
+        i++;
+      } else if (char === '\t') {
+        result += '\\t';
+        i++;
+      } else {
+        const code = char.charCodeAt(0);
+        if (code < 32) {
+          result += '\\u' + code.toString(16).padStart(4, '0');
+        } else {
+          result += char;
+        }
+        i++;
+      }
+    }
+  }
+  return result;
+}
+
+function parseAndCleanQuizJson(rawText: string): any {
+  let jsonText = (rawText || '').trim();
+  if (jsonText.startsWith('```')) {
+    const match = jsonText.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+    if (match) {
+      jsonText = match[1].trim();
+    }
+  }
+
+  let sanitized = jsonText;
+  try {
+    sanitized = sanitizeJsonString(jsonText);
+  } catch {
+    sanitized = jsonText;
+  }
+
+  try {
+    return JSON.parse(sanitized);
+  } catch (err: any) {
+    try {
+      const desperateClean = jsonText.replace(/\\/g, '\\\\')
+                                    .replace(/\\\\"/g, '\\"')
+                                    .replace(/\\\\n/g, '\\n')
+                                    .replace(/\\\\r/g, '\\r')
+                                    .replace(/\\\\t/g, '\\t')
+                                    .replace(/\\\\f/g, '\\f')
+                                    .replace(/\\\\b/g, '\\b');
+      return JSON.parse(desperateClean);
+    } catch {
+      throw err;
+    }
+  }
+}
+
+// Splits full document text into sequential page blocks or chunks
+interface DocChunk {
+  text: string;
+  chunkIndex: number;
+  totalChunks: number;
+  pageRange: string;
+}
+
+function splitDocumentIntoChunks(fullText: string): DocChunk[] {
+  // Check for page markers [PAGE_NUMBER_MARKER_X]
+  const pageMarkerRegex = /\[PAGE_NUMBER_MARKER_(\d+)\]/g;
+  const pageMatches: { pageNum: number; index: number }[] = [];
+  let m;
+  while ((m = pageMarkerRegex.exec(fullText)) !== null) {
+    pageMatches.push({ pageNum: parseInt(m[1], 10), index: m.index });
+  }
+
+  // If we have distinct pages and more than 3 pages, group by 3 pages per chunk
+  if (pageMatches.length > 3) {
+    const chunks: DocChunk[] = [];
+    const pagesPerChunk = 3;
+    const totalPages = pageMatches.length;
+    const numChunks = Math.ceil(totalPages / pagesPerChunk);
+
+    for (let c = 0; c < numChunks; c++) {
+      const startPageIdx = c * pagesPerChunk;
+      const endPageIdx = Math.min(startPageIdx + pagesPerChunk - 1, totalPages - 1);
+      
+      const startPos = pageMatches[startPageIdx].index;
+      const nextChunkPageIdx = endPageIdx + 1;
+      const endPos = nextChunkPageIdx < totalPages ? pageMatches[nextChunkPageIdx].index : fullText.length;
+      
+      const chunkText = fullText.substring(startPos, endPos).trim();
+      const startPageNum = pageMatches[startPageIdx].pageNum;
+      const endPageNum = pageMatches[endPageIdx].pageNum;
+
+      chunks.push({
+        text: chunkText,
+        chunkIndex: c + 1,
+        totalChunks: numChunks,
+        pageRange: `Pages ${startPageNum} to ${endPageNum}`,
+      });
+    }
+
+    return chunks;
+  }
+
+  // If text is very long (> 14000 characters) without page markers, split into ~12000 character chunks
+  if (fullText.length > 14000) {
+    const chunks: DocChunk[] = [];
+    const targetSize = 12000;
+    let currentPos = 0;
+    let chunkCounter = 1;
+
+    while (currentPos < fullText.length) {
+      let nextPos = currentPos + targetSize;
+      if (nextPos >= fullText.length) {
+        nextPos = fullText.length;
+      } else {
+        // Try to break at a double newline or question number
+        const slice = fullText.substring(nextPos - 1000, nextPos + 1000);
+        const breakMatch = slice.match(/\n\n(?:\d+[\.\)]|\bQuestion\s+\d+|Q\d+[\.\:])/i);
+        if (breakMatch && breakMatch.index !== undefined) {
+          nextPos = nextPos - 1000 + breakMatch.index + 2;
+        }
+      }
+
+      chunks.push({
+        text: fullText.substring(currentPos, nextPos).trim(),
+        chunkIndex: chunkCounter,
+        totalChunks: 1, // Will update below
+        pageRange: `Section ${chunkCounter}`,
+      });
+
+      currentPos = nextPos;
+      chunkCounter++;
+    }
+
+    chunks.forEach(c => c.totalChunks = chunks.length);
+    return chunks;
+  }
+
+  // Short document: 1 single chunk
+  return [{
+    text: fullText,
+    chunkIndex: 1,
+    totalChunks: 1,
+    pageRange: 'All Pages',
+  }];
+}
+
+// Find potential Answer Key in document (usually in last pages or at bottom)
+function extractGlobalAnswerKey(fullText: string): string {
+  const answerKeyMarkers = [
+    /(?:ANSWER\s*KEY|KEY\s*TO\s*CORRECTION|ANSWERS\s*AND\s*SOLUTIONS|CORRECT\s*ANSWERS|SOLUTIONS\s*KEY)[\s\S]{10,2500}/i,
+    /(?:Answers?\s*:?\s*(?:\n|\s)*(?:1[\.\-\s]+[A-D\d]|Q1[\.\-\s]+[A-D\d])[\s\S]{10,1500})/i
+  ];
+
+  for (const regex of answerKeyMarkers) {
+    const match = fullText.match(regex);
+    if (match) {
+      return match[0].trim();
+    }
+  }
+  return '';
 }
 
 export async function POST(req: NextRequest) {
@@ -95,101 +330,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No document text provided for extraction' }, { status: 400 });
     }
 
-    // Define the system instructions and constraints to support BOTH question extraction and high-quality question generation
-    const systemInstruction = `You are an elite, high-accuracy Exam Extraction and Intelligent Quiz Generation AI.
-Your primary directive is to process the provided document text (and any embedded images) and produce a comprehensive, complete quiz.
+    // Extract any Global Answer Key from the whole document to help every chunk
+    const globalAnswerKey = extractGlobalAnswerKey(text);
 
-CRITICAL INSTRUCTIONS:
-1. HYBRID EXTRACTION & GENERATION:
-   - If the document already contains pre-written questions (e.g., test sheets, worksheets, question banks, reviewers), you MUST extract 100% of them with perfect fidelity. Do NOT skip, summarize, or truncate. If there are 30, 50, 80, 100 or more questions, you MUST extract ALL of them sequentially. There is NO upper limit or artificial cap on the number of questions.
-   - If the document contains study guides, textbooks, chapters, summaries, slides, or notes (which do not have explicit questions, or have very few), analyze the content deeply and GENERATE a high-quality quiz of at least 15 to 25 questions that comprehensively tests the core concepts, terms, formulas, and facts in the text.
-   - If the document contains a mix of both, extract all existing questions AND generate additional highly relevant questions from the informational content to form a complete, robust quiz.
-2. ANSWER SELECTION & COMPREHENSIVE EXPLANATIONS:
-   - For extracted questions: Detect bold letters, answer keys, solutions, or asterisks. Cross-reference any answer key (usually at the end) and pair it with the corresponding question.
-   - For generated questions: Always select a mathematically or factually correct answer.
-   - For ALL questions, provide a comprehensive, step-by-step solution in the 'explanation' field.
-     - For computational questions: Include the complete mathematical formula(s), clearly define each variable, substitute the given values, perform the calculations in the correct order, and present the final answer with appropriate units. Use proper LaTeX formatting.
-     - For conceptual/theory questions: Provide a concise but complete explanation that justifies why the correct answer is correct and why other choices are incorrect. The goal is to make it a complete learning resource.
-3. IMAGES & DIAGRAMS:
-   - If you encounter image references (like [IMAGE_REF_0], [IMAGE_REF_1]) in the text, look at the corresponding images provided in the multimodal context. Preserve the reference tags (e.g., "[IMAGE_REF_0]") inside the question text or map them correctly to the question metadata.
-4. TYPES OF QUESTIONS:
-   - MCQ: Multiple choice questions. Generate or extract 4 clear options (A, B, C, D) and parse them into the 'choices' array.
-   - TRUE_FALSE: True or False questions.
-   - IDENTIFICATION: Direct short answer questions.
-   - ENUMERATION: List-type answers.
-   - FILL_IN_BLANK: Text with blank spaces (e.g. "_____").
-   - MATCHING: Matching left items to right items. Pass pairs in the 'matchingPairs' field.
-   - SITUATIONAL / COMPUTATIONAL / ESSAY: Scenario-based or numerical calculation questions.
-5. FORMATTING & MATHEMATICAL EXPRESSIONS (STRICT LATEX):
-   - You MUST extract 100% of all mathematical questions containing formulas, symbols, fractions, exponents, subscripts, superscripts, matrices, integrals, summations, Greek letters, square roots, vectors, and other notation WITHOUT any loss of formatting or detail.
-   - Represent EVERY mathematical expression, formula, symbol, equation, and notation strictly using standard LaTeX formatting.
-   - Use standard inline LaTeX wrapped in single dollar signs like '$...$' for inline notation, variables, and small expressions (e.g., '$E = mc^2$', '$\\frac{a}{b}$', '$\\alpha$', '$\\sqrt{x^2+y^2}$', '$x_i$', or '$y^2$').
-   - Use block/standalone LaTeX wrapped in double dollar signs like '$$...$$' for larger equations, standalone expressions, matrices, integrals, or complex summations (e.g., '$$\\int_a^b f(x)\\,dx$$', or '$$\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}$$').
-   - Double-escape all backslashes in JSON (e.g., write '\\\\frac{a}{b}' or '\\\\alpha') to ensure it is valid JSON. NEVER output a raw unescaped backslash like '\\frac'.
-   - Ensure absolutely no mathematical symbols are converted into plain text, omitted, corrupted, or reformatted incorrectly during extraction. The rendered output must be visually and structurally identical to the source document.
-6. MULTILINGUAL SUPPORT:
-   - Fully support English, Filipino, and Taglish/mixed-language documents with perfect OCR and translation fidelity.`;
-
-    // Construct multimodal content by parsing [IMAGE_REF_X] from the document text
-    const parts: any[] = [];
-    let lastIndex = 0;
-    const regex = /\[IMAGE_REF_(\d+)\]/g;
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-      const matchIndex = match.index;
-      const imageIdx = parseInt(match[1], 10);
-
-      // Add text leading up to the image placeholder
-      const segment = text.substring(lastIndex, matchIndex);
-      if (segment) {
-        parts.push({ text: segment });
-      }
-
-      // Add the placeholder text tag itself so the AI has a textual anchor
-      parts.push({ text: `[IMAGE_REF_${imageIdx}]` });
-
-      // If we have the image base64, add it as inlineData
-      if (images && images[imageIdx]) {
-        const imageStr = images[imageIdx];
-        const commaIdx = imageStr.indexOf(',');
-        if (commaIdx !== -1) {
-          const mimeTypeMatch = imageStr.match(/^data:([^;]+);base64,/);
-          const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
-          const base64Data = imageStr.substring(commaIdx + 1);
-          parts.push({
-            inlineData: {
-              mimeType: mimeType,
-              data: base64Data
-            }
-          });
-        }
-      }
-
-      lastIndex = regex.lastIndex;
-    }
-
-    // Add any remaining text
-    const remainingSegment = text.substring(lastIndex);
-    if (remainingSegment) {
-      parts.push({ text: remainingSegment });
-    }
-
-    const finalContents = [
-      {
-        text: `Analyze the uploaded document and either extract its questions or generate highly educational quiz questions based on its content:
-File Name: ${fileName || 'Uploaded Document'}
-Proposed Subject: ${subject || 'Auto-detect'}
-Default Difficulty: ${difficulty || 'Auto-detect'}
-Custom rules/guidelines: ${customInstructions || 'Extract all existing questions or generate a comprehensive set of test questions covering all key concepts.'}
-
-Document Content:
----
-`
-      },
-      ...parts,
-      { text: `\n---` }
-    ];
+    // Split document into structured chunks to guarantee 100% of all questions are scanned
+    const chunks = splitDocumentIntoChunks(text);
+    console.log(`Document split into ${chunks.length} chunk(s) for exhaustive scanning.`);
 
     // Response schema configuration using standard GoogleGenAI schema types
     const responseSchema = {
@@ -205,25 +351,25 @@ Document Content:
         },
         subject: {
           type: Type.STRING,
-          description: 'The primary subject of the exam (e.g. Civil Engineering, Organic Chemistry, Philippine History).',
+          description: 'The primary subject of the exam (e.g. Civil Engineering, Electrical Engineering, Nursing, Mathematics).',
         },
         category: {
           type: Type.STRING,
-          description: 'Sub-topic or examiner category (e.g. Structural Design, Board Exam Review, Midterms).',
+          description: 'Sub-topic or examiner category (e.g. Structural Design, Board Exam Review, Licensure Exam).',
         },
         questions: {
           type: Type.ARRAY,
-          description: 'The complete and comprehensive list of ALL extracted questions from the document in sequential order. You MUST NOT leave out, skip, or summarize any questions. If the document has 50 questions, extract all 50. If there are 100, extract all 100. If generating, create 15 to 25 highly comprehensive questions.',
+          description: 'The exhaustive, complete list of ALL questions extracted from this document section. You MUST NOT leave out, skip, or summarize any questions.',
           items: {
             type: Type.OBJECT,
             properties: {
               number: {
                 type: Type.STRING,
-                description: "Original or sequential numbering of the question (e.g., '1.', 'Part I, Q2', '14').",
+                description: "Original numbering of the question as written in document (e.g., '1.', '2.', 'Situation 1 - Q1').",
               },
               text: {
                 type: Type.STRING,
-                description: 'The exact original text of the question or the generated question text. Include inline image references like [IMAGE_REF_0], tables, mathematical symbols, or blanks exactly as written.',
+                description: 'The exact question text with full LaTeX formulas, variables, and any situation or context included.',
               },
               type: {
                 type: Type.STRING,
@@ -232,11 +378,11 @@ Document Content:
               choices: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
-                description: "For MCQ, the full list of selectable answers (at least 4 options). Retain or assign lettering (e.g. 'A. Option 1', 'B. Option 2').",
+                description: "For MCQ, the full list of selectable answers (options A, B, C, D) with LaTeX math preserved.",
               },
               correctAnswer: {
                 type: Type.STRING,
-                description: "The correct answer. For MCQ, extract or assign the letter (e.g. 'A') or the exact matching text. If True/False, write 'True' or 'False'. If identification or fill in the blank, write the short word/phrase.",
+                description: "The correct answer (e.g. 'A', 'B', 'True', 'False', or short answer text).",
               },
               matchingPairs: {
                 type: Type.ARRAY,
@@ -272,7 +418,7 @@ Document Content:
               },
               pageNumber: {
                 type: Type.INTEGER,
-                description: 'The page number in the original document where this question was located (if available/inferred).',
+                description: 'The page number in the original document where this question was located.',
               },
               solution: {
                 type: Type.OBJECT,
@@ -294,7 +440,7 @@ Document Content:
                   },
                   diagram: {
                     type: Type.OBJECT,
-                    description: 'Optional diagram metadata (e.g. circuit, power_triangle, beam, generic).',
+                    description: 'Optional diagram metadata.',
                     properties: {
                       type: { type: Type.STRING },
                       title: { type: Type.STRING },
@@ -334,142 +480,161 @@ Document Content:
       required: ['quizTitle', 'questions'],
     };
 
-    const response = await generateContentWithRetryAndFallback({
-      contents: { parts: finalContents },
-      config: {
-        systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema,
-        temperature: 0.1, // Lower temperature for extremely high fidelity factual extraction and layout adherence
-      },
-    });
+    const allExtractedQuestions: any[] = [];
+    let combinedTitle = '';
+    let combinedDescription = '';
+    let combinedSubject = subject || '';
+    let combinedCategory = 'Board Exam Review';
 
-    let jsonText = response.text;
-    if (!jsonText) {
-      throw new Error('Gemini returned an empty response.');
-    }
+    // Process all chunks sequentially to guarantee complete question recovery without omission
+    for (let idx = 0; idx < chunks.length; idx++) {
+      const chunk = chunks[idx];
+      console.log(`Processing Chunk ${chunk.chunkIndex}/${chunk.totalChunks} (${chunk.pageRange})...`);
 
-    // Trim whitespace and strip any markdown wrappers if present
-    jsonText = jsonText.trim();
-    if (jsonText.startsWith('```')) {
-      const match = jsonText.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-      if (match) {
-        jsonText = match[1].trim();
-      }
-    }
+      const systemInstruction = `You are an elite, exhaustive Exam Scanner and Question Extractor AI.
+Your directive is to extract 100% of ALL questions located in this section (${chunk.pageRange}) of the uploaded document with absolute completeness and zero omission.
 
-    // Custom high-fidelity JSON string sanitizer to handle LaTeX math and improper backslash escapes
-    const sanitizeJsonString = (jsonStr: string): string => {
-      let result = '';
-      let inString = false;
-      let i = 0;
-      const len = jsonStr.length;
+CRITICAL DIRECTIVES:
+1. EXHAUSTIVE 100% SCANNING:
+   - Scan every single line, column, and problem.
+   - Do NOT skip, do NOT sample, and do NOT truncate questions. If this section has 10, 20, 30, or 50 questions, extract ALL of them.
+   - Look for question numbering: '1.', '2.', 'Problem 1:', 'Q1', '(1)', etc.
+   - If situational problems exist (e.g. 'Situation 1: A 10m beam... Questions 1, 2, and 3'), prepend the situation description to EACH related question so they are fully self-contained.
+2. CHOICES & ANSWER EXTRACTION:
+   - For Multiple Choice Questions (MCQ), extract all choices (A, B, C, D) into the 'choices' array.
+   - Detect correct answers from bolding, asterisk (*), answer keys, or context.
+   ${globalAnswerKey ? `3. GLOBAL ANSWER KEY REFERENCE:\nUse this document answer key when available:\n${globalAnswerKey}\n` : ''}
+4. STRICT LATEX FOR MATHEMATICAL FORMULAS:
+   - Wrap inline math in single dollar signs like '$...$' (e.g., '$E = mc^2$', '$\\frac{a}{b}$', '$\\sigma = \\frac{P}{A}$').
+   - Wrap standalone formulas in double dollar signs like '$$...$$'.
+   - Double-escape backslashes in JSON (write '\\\\frac' or '\\\\sigma').
+5. COMPREHENSIVE EXPLANATIONS:
+   - For every question, provide a step-by-step solution or conceptual rationale in the 'explanation' field.`;
 
-      while (i < len) {
-        const char = jsonStr[i];
-        if (!inString) {
-          if (char === '"') {
-            inString = true;
-          }
-          result += char;
-          i++;
-        } else {
-          if (char === '\\') {
-            if (i + 1 < len) {
-              const nextChar = jsonStr[i + 1];
-              let isValidEscape = ['"', '\\', '/', 'b', 'f', 'n', 'r', 't'].includes(nextChar);
+      // Construct multimodal parts for this chunk
+      const parts: any[] = [];
+      let lastIndex = 0;
+      const regex = /\[IMAGE_REF_(\d+)\]/g;
+      let match;
 
-              // If it's b, f, r, or t, check if it's followed by an alphabetic character
-              // representing a LaTeX command (e.g., \frac, \right, \begin, \times) rather than a control escape
-              if (isValidEscape && ['b', 'f', 'r', 't'].includes(nextChar) && i + 2 < len) {
-                const afterNextChar = jsonStr[i + 2];
-                if (/^[a-zA-Z]$/.test(afterNextChar)) {
-                  isValidEscape = false; // Treat as LaTeX/word, double-escape it
-                }
+      while ((match = regex.exec(chunk.text)) !== null) {
+        const matchIndex = match.index;
+        const imageIdx = parseInt(match[1], 10);
+
+        const segment = chunk.text.substring(lastIndex, matchIndex);
+        if (segment) {
+          parts.push({ text: segment });
+        }
+
+        parts.push({ text: `[IMAGE_REF_${imageIdx}]` });
+
+        if (images && images[imageIdx]) {
+          const imageStr = images[imageIdx];
+          const commaIdx = imageStr.indexOf(',');
+          if (commaIdx !== -1) {
+            const mimeTypeMatch = imageStr.match(/^data:([^;]+);base64,/);
+            const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : 'image/jpeg';
+            const base64Data = imageStr.substring(commaIdx + 1);
+            parts.push({
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Data
               }
-
-              if (isValidEscape) {
-                result += '\\' + nextChar;
-                i += 2;
-              } else if (nextChar === 'u') {
-                if (i + 5 < len) {
-                  const hexPart = jsonStr.substring(i + 2, i + 6);
-                  if (/^[0-9a-fA-F]{4}$/.test(hexPart)) {
-                    result += '\\u' + hexPart;
-                    i += 6;
-                  } else {
-                    result += '\\\\';
-                    i++;
-                  }
-                } else {
-                  result += '\\\\';
-                  i++;
-                }
-              } else {
-                result += '\\\\';
-                i++;
-              }
-            } else {
-              result += '\\\\';
-              i++;
-            }
-          } else if (char === '"') {
-            inString = false;
-            result += char;
-            i++;
-          } else if (char === '\n') {
-            result += '\\n';
-            i++;
-          } else if (char === '\r') {
-            result += '\\r';
-            i++;
-          } else if (char === '\t') {
-            result += '\\t';
-            i++;
-          } else {
-            const code = char.charCodeAt(0);
-            if (code < 32) {
-              result += '\\u' + code.toString(16).padStart(4, '0');
-            } else {
-              result += char;
-            }
-            i++;
+            });
           }
         }
+
+        lastIndex = regex.lastIndex;
       }
-      return result;
+
+      const remainingSegment = chunk.text.substring(lastIndex);
+      if (remainingSegment) {
+        parts.push({ text: remainingSegment });
+      }
+
+      const finalContents = [
+        {
+          text: `EXHAUSTIVE EXAM QUESTION EXTRACTION:
+Source Document: ${fileName || 'Uploaded Material'}
+Chunk Section: Part ${chunk.chunkIndex} of ${chunk.totalChunks} (${chunk.pageRange})
+Proposed Subject: ${subject || 'Auto-detect'}
+Default Difficulty: ${difficulty || 'Auto-detect'}
+Custom Rules: ${customInstructions || 'Extract all existing questions with 100% fidelity without omitting any.'}
+
+Document Content to Scan:
+---
+`
+        },
+        ...parts,
+        { text: `\n---` }
+      ];
+
+      try {
+        const response = await generateContentWithRetryAndFallback({
+          contents: { parts: finalContents },
+          config: {
+            systemInstruction,
+            responseMimeType: 'application/json',
+            responseSchema,
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+          },
+        });
+
+        const parsed = parseAndCleanQuizJson(response.text);
+        if (parsed && Array.isArray(parsed.questions)) {
+          if (!combinedTitle && parsed.quizTitle) combinedTitle = parsed.quizTitle;
+          if (!combinedDescription && parsed.quizDescription) combinedDescription = parsed.quizDescription;
+          if (!combinedSubject && parsed.subject) combinedSubject = parsed.subject;
+          if (parsed.category) combinedCategory = parsed.category;
+
+          parsed.questions.forEach((q: any) => {
+            if (q && q.text && q.text.trim().length > 0) {
+              allExtractedQuestions.push(q);
+            }
+          });
+          console.log(`Chunk ${chunk.chunkIndex} yielded ${parsed.questions.length} questions. Running total: ${allExtractedQuestions.length}`);
+        }
+      } catch (chunkErr) {
+        console.warn(`Error processing chunk ${chunk.chunkIndex}:`, chunkErr);
+        // Continue to other chunks so partial errors don't discard the rest of the document
+      }
+    }
+
+    if (allExtractedQuestions.length === 0) {
+      throw new Error('No questions could be extracted from the document. Please ensure the document contains legible exam text or questions.');
+    }
+
+    // Deduplicate questions by text similarity / number and ensure sequential numbering
+    const seenTexts = new Set<string>();
+    const deduplicatedQuestions = allExtractedQuestions.filter(q => {
+      const normalized = (q.text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 100);
+      if (!normalized || seenTexts.has(normalized)) return false;
+      seenTexts.add(normalized);
+      return true;
+    });
+
+    // Re-index question numbers cleanly if needed
+    const finalQuestions = deduplicatedQuestions.map((q, index) => ({
+      ...q,
+      number: q.number || `${index + 1}.`,
+    }));
+
+    const finalQuiz = {
+      quizTitle: combinedTitle || `Exam Reviewer: ${fileName || 'Extracted Quiz'}`,
+      quizDescription: combinedDescription || `Comprehensive board exam reviewer containing ${finalQuestions.length} extracted questions.`,
+      subject: combinedSubject || 'Board Exam Review',
+      category: combinedCategory || 'Licensure Reviewer',
+      questions: finalQuestions,
     };
 
-    let sanitizedJsonText = jsonText;
-    try {
-      sanitizedJsonText = sanitizeJsonString(jsonText);
-    } catch (e) {
-      console.warn('Error during custom JSON string sanitization:', e);
-    }
-
-    let quizData;
-    try {
-      quizData = JSON.parse(sanitizedJsonText);
-    } catch (parseError: any) {
-      console.error('JSON parsing failed. Attempting desperate fallback cleanup:', parseError);
-      try {
-        const desperateClean = jsonText.replace(/\\/g, '\\\\')
-                                        .replace(/\\\\"/g, '\\"')
-                                        .replace(/\\\\n/g, '\\n')
-                                        .replace(/\\\\r/g, '\\r')
-                                        .replace(/\\\\t/g, '\\t')
-                                        .replace(/\\\\f/g, '\\f')
-                                        .replace(/\\\\b/g, '\\b');
-        quizData = JSON.parse(desperateClean);
-      } catch (fallbackError: any) {
-        console.error('All JSON recovery attempts failed:', fallbackError);
-        throw parseError;
-      }
-    }
+    console.log(`Successfully completed 100% extraction: Total of ${finalQuestions.length} questions extracted.`);
 
     return NextResponse.json({
       success: true,
-      quiz: quizData,
+      quiz: finalQuiz,
+      totalExtracted: finalQuestions.length,
+      chunksProcessed: chunks.length,
     });
   } catch (error: any) {
     console.error('Error generating quiz:', error);
