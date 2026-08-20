@@ -443,7 +443,7 @@ Document Content:
   } catch (error: any) {
     console.error('Error generating quiz:', error);
     return NextResponse.json(
-      { error: 'Electrical Review Pro generation failed: ' + (error.message || error) },
+      { error: 'Board Exam Review Pro generation failed: ' + (error.message || error) },
       { status: 500 }
     );
   }

@@ -56,6 +56,12 @@ import { cn } from '@/lib/utils';
 import { QuestionType, Question, Quiz, QuizAttempt, ExtractionLog, ScheduledQuiz } from '@/lib/types';
 import { MathRenderer } from '@/components/MathRenderer';
 import { ExplanationVisualizer } from '@/components/ExplanationVisualizer';
+import {
+  safeLocalStorageGet,
+  safeLocalStorageSet,
+  safeLocalStorageRemove,
+  cleanupLegacyStorageKeys
+} from '@/lib/storage';
 
 // Recharts components imports
 import {
@@ -335,7 +341,7 @@ const SAMPLE_QUIZ: Quiz = {
   ]
 };
 
-export default function ElectricalReviewPro() {
+export default function BoardExamReviewPro() {
   // Application states
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
@@ -345,7 +351,7 @@ export default function ElectricalReviewPro() {
   // User Role Configuration (Admin vs Member)
   const [userRole, setUserRole] = useState<'admin' | 'member'>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('review_user_role');
+      const saved = safeLocalStorageGet('review_user_role');
       if (saved === 'admin' || saved === 'member') return saved;
     }
     return 'admin'; // default to admin so they see all controls immediately
@@ -406,7 +412,7 @@ export default function ElectricalReviewPro() {
   // Instant Feedback Mode states
   const [showInstantFeedback, setShowInstantFeedback] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('quiz_show_instant_feedback') === 'true';
+      return safeLocalStorageGet('quiz_show_instant_feedback') === 'true';
     }
     return false;
   });
@@ -503,7 +509,7 @@ export default function ElectricalReviewPro() {
   // Save option to localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('quiz_show_instant_feedback', String(showInstantFeedback));
+      safeLocalStorageSet('quiz_show_instant_feedback', String(showInstantFeedback));
     }
   }, [showInstantFeedback]);
 
@@ -638,10 +644,15 @@ export default function ElectricalReviewPro() {
   // Initialize and load quizzes from local storage
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      let stored = localStorage.getItem('electrical_review_pro_quizzes');
+      cleanupLegacyStorageKeys();
+      let stored = safeLocalStorageGet('board_exam_review_pro_quizzes');
       if (!stored) {
-        stored = localStorage.getItem('ai_quiz_generator_quizzes'); // migration
-        if (stored) localStorage.setItem('electrical_review_pro_quizzes', stored);
+        stored = safeLocalStorageGet('electrical_review_pro_quizzes') || safeLocalStorageGet('ai_quiz_generator_quizzes'); // migration
+        if (stored) {
+          safeLocalStorageSet('board_exam_review_pro_quizzes', stored);
+          safeLocalStorageRemove('electrical_review_pro_quizzes');
+          safeLocalStorageRemove('ai_quiz_generator_quizzes');
+        }
       }
       
       if (stored) {
@@ -658,18 +669,18 @@ export default function ElectricalReviewPro() {
           if (parsed.length > 0) {
             setSelectedQuiz(parsed[0]);
           }
-          localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify(parsed));
+          safeLocalStorageSet('board_exam_review_pro_quizzes', JSON.stringify(parsed));
         } catch (e) {
           console.error('Error loading quizzes:', e);
           setQuizzes([SAMPLE_QUIZ]);
           setSelectedQuiz(SAMPLE_QUIZ);
-          localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify([SAMPLE_QUIZ]));
+          safeLocalStorageSet('board_exam_review_pro_quizzes', JSON.stringify([SAMPLE_QUIZ]));
         }
       } else {
         // Seed with sample quiz
         setQuizzes([SAMPLE_QUIZ]);
         setSelectedQuiz(SAMPLE_QUIZ);
-        localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify([SAMPLE_QUIZ]));
+        safeLocalStorageSet('board_exam_review_pro_quizzes', JSON.stringify([SAMPLE_QUIZ]));
       }
     }
   }, []);
@@ -677,21 +688,28 @@ export default function ElectricalReviewPro() {
   // Save quizzes to local storage helper
   const saveQuizzesToStorage = (updatedQuizzes: Quiz[]) => {
     setQuizzes(updatedQuizzes);
-    localStorage.setItem('electrical_review_pro_quizzes', JSON.stringify(updatedQuizzes));
+    safeLocalStorageSet('board_exam_review_pro_quizzes', JSON.stringify(updatedQuizzes));
   };
 
   // Load score history attempts from local storage on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      let stored = localStorage.getItem('electrical_review_pro_attempts');
+      let stored = safeLocalStorageGet('board_exam_review_pro_attempts');
       if (!stored) {
-        stored = localStorage.getItem('ai_quiz_generator_attempts'); // migration
-        if (stored) localStorage.setItem('electrical_review_pro_attempts', stored);
+        stored = safeLocalStorageGet('electrical_review_pro_attempts') || safeLocalStorageGet('ai_quiz_generator_attempts'); // migration
+        if (stored) {
+          safeLocalStorageSet('board_exam_review_pro_attempts', stored);
+          safeLocalStorageRemove('electrical_review_pro_attempts');
+          safeLocalStorageRemove('ai_quiz_generator_attempts');
+        }
       }
       
       if (stored) {
         try {
-          setAttempts(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setAttempts(parsed);
+          }
         } catch (e) {
           console.error('Error loading attempts:', e);
         }
@@ -701,17 +719,29 @@ export default function ElectricalReviewPro() {
 
   // Save attempts helper
   const saveAttemptsToStorage = (updatedAttempts: QuizAttempt[]) => {
-    setAttempts(updatedAttempts);
-    localStorage.setItem('electrical_review_pro_attempts', JSON.stringify(updatedAttempts));
+    // Keep at most 50 recent attempts
+    const trimmed = updatedAttempts.slice(0, 50);
+    setAttempts(trimmed);
+    safeLocalStorageSet('board_exam_review_pro_attempts', JSON.stringify(trimmed));
   };
 
   // Load scheduled quizzes from local storage on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('electrical_review_pro_schedules');
+      let stored = safeLocalStorageGet('board_exam_review_pro_schedules');
+      if (!stored) {
+        stored = safeLocalStorageGet('electrical_review_pro_schedules'); // migration
+        if (stored) {
+          safeLocalStorageSet('board_exam_review_pro_schedules', stored);
+          safeLocalStorageRemove('electrical_review_pro_schedules');
+        }
+      }
       if (stored) {
         try {
-          setScheduledQuizzes(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setScheduledQuizzes(parsed);
+          }
         } catch (e) {
           console.error('Error loading scheduled quizzes:', e);
         }
@@ -722,7 +752,7 @@ export default function ElectricalReviewPro() {
   // Save scheduled quizzes helper
   const saveSchedulesToStorage = (updatedSchedules: ScheduledQuiz[]) => {
     setScheduledQuizzes(updatedSchedules);
-    localStorage.setItem('electrical_review_pro_schedules', JSON.stringify(updatedSchedules));
+    safeLocalStorageSet('board_exam_review_pro_schedules', JSON.stringify(updatedSchedules));
   };
 
   // Calendar navigation and helper functions
@@ -1487,7 +1517,7 @@ export default function ElectricalReviewPro() {
     setExtractionLogs(prev => prev.map(l => l.id === logId ? { ...l, status: 'success' } : l));
   };
 
-  // Electrical Review Pro Caller
+  // Board Exam Review Pro Caller
   const generateQuizFromFiles = async () => {
     if (uploadedFiles.length === 0) {
       showToast('Please upload at least one PDF or Word document first.', 'error');
@@ -1708,7 +1738,7 @@ export default function ElectricalReviewPro() {
         ...quizAttempt,
         answers: userAnswers
       };
-      localStorage.setItem(`quiz_attempt_${quizAttempt.quizId}`, JSON.stringify(savedAttempt));
+      safeLocalStorageSet(`quiz_attempt_${quizAttempt.quizId}`, JSON.stringify(savedAttempt));
     }
   }, [userAnswers, quizAttempt]);
 
@@ -1735,7 +1765,7 @@ export default function ElectricalReviewPro() {
 
     setQuizAttempt(finishedAttempt);
     setShowResults(true);
-    localStorage.removeItem(`quiz_attempt_${selectedQuiz.id}`); // Clear temporary state
+    safeLocalStorageRemove(`quiz_attempt_${selectedQuiz.id}`); // Clear temporary state
 
     // 1. Calculate achievements & milestones
     const previousAttemptsForQuiz = attempts.filter(att => att.quizId === selectedQuiz.id);
@@ -1798,7 +1828,7 @@ export default function ElectricalReviewPro() {
 
   // Resume unfinished quiz from storage if any
   const checkAndResumeQuiz = (quiz: Quiz) => {
-    const saved = localStorage.getItem(`quiz_attempt_${quiz.id}`);
+    const saved = safeLocalStorageGet(`quiz_attempt_${quiz.id}`);
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -2055,7 +2085,7 @@ export default function ElectricalReviewPro() {
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                <span>Electrical Review Pro</span>
+                <span>Board Exam Review Pro</span>
               </h1>
               <p className="text-xs text-slate-400">Document Scan & Interactive Review Platform</p>
             </div>
@@ -2079,7 +2109,7 @@ export default function ElectricalReviewPro() {
                 type="button"
                 onClick={() => {
                   setUserRole('admin');
-                  localStorage.setItem('review_user_role', 'admin');
+                  safeLocalStorageSet('review_user_role', 'admin');
                   showToast('Switched to Admin Role', 'info');
                 }}
                 className={cn(
@@ -2096,7 +2126,7 @@ export default function ElectricalReviewPro() {
                 type="button"
                 onClick={() => {
                   setUserRole('member');
-                  localStorage.setItem('review_user_role', 'member');
+                  safeLocalStorageSet('review_user_role', 'member');
                   showToast('Switched to Member Role', 'info');
                   if (activeMode === 'edit' || activeMode === 'extract') {
                     setActiveMode('list');
@@ -6389,7 +6419,7 @@ export default function ElectricalReviewPro() {
       {/* Footer */}
       <footer className="bg-[#0B0B0C] border-t border-white/10 mt-12 py-6 text-center text-xs text-slate-500">
         <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-12 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© 2026 Electrical Review Pro • Real-Time Client Parsing & Verification Stack</p>
+          <p>© 2026 Board Exam Review Pro • Real-Time Client Parsing & Verification Stack</p>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
