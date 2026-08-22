@@ -65,7 +65,7 @@ async function generateContentWithRetryAndFallback(params: {
 
         // If quota or rate limit on this specific model, try next model in cascade
         if (lowerErr.includes('429') || lowerErr.includes('quota') || lowerErr.includes('resource_exhausted')) {
-          console.log(`Model ${model} rate limited / quota exhausted. Trying next fallback model...`);
+          console.log(`Model ${model} rate limited or quota reached. Trying next fallback model...`);
           break;
         }
 
@@ -73,7 +73,8 @@ async function generateContentWithRetryAndFallback(params: {
         if (
           lowerErr.includes('503') || 
           lowerErr.includes('unavailable') || 
-          lowerErr.includes('high demand')
+          lowerErr.includes('high demand') ||
+          lowerErr.includes('limit')
         ) {
           console.log(`Model ${model} currently experiencing high demand. Seamlessly switching to next fallback model...`);
           break;
@@ -98,7 +99,7 @@ async function generateContentWithRetryAndFallback(params: {
   }
 
   const errorMessage = lastError?.message || JSON.stringify(lastError) || 'Unknown error';
-  throw new Error(`ALL_MODELS_FAILED: ${errorMessage}`);
+  throw new Error(`All models and retries failed due to API errors / high demand. Last error: ${errorMessage}`);
 }
 
 // JSON sanitization helper to handle LaTeX math and improper backslash escapes
@@ -234,10 +235,10 @@ function splitDocumentIntoChunks(fullText: string): DocChunk[] {
     pageMatches.push({ pageNum: parseInt(m[1], 10), index: m.index });
   }
 
-  // If we have distinct pages and more than 6 pages, group by 6-8 pages per chunk to conserve API quota and preserve context
-  if (pageMatches.length > 6) {
+  // If we have distinct pages and more than 3 pages, group by 3 pages per chunk
+  if (pageMatches.length > 3) {
     const chunks: DocChunk[] = [];
-    const pagesPerChunk = 8;
+    const pagesPerChunk = 3;
     const totalPages = pageMatches.length;
     const numChunks = Math.ceil(totalPages / pagesPerChunk);
 
@@ -264,10 +265,10 @@ function splitDocumentIntoChunks(fullText: string): DocChunk[] {
     return chunks;
   }
 
-  // If text is very long (> 28000 characters) without page markers, split into ~25000 character chunks
-  if (fullText.length > 28000) {
+    // If text is very long (> 24000 characters) without page markers, split into ~20000 character chunks
+  if (fullText.length > 24000) {
     const chunks: DocChunk[] = [];
-    const targetSize = 25000;
+    const targetSize = 20000;
     let currentPos = 0;
     let chunkCounter = 1;
 
@@ -277,10 +278,10 @@ function splitDocumentIntoChunks(fullText: string): DocChunk[] {
         nextPos = fullText.length;
       } else {
         // Try to break at a double newline or question number
-        const slice = fullText.substring(nextPos - 1500, nextPos + 1500);
+        const slice = fullText.substring(nextPos - 1200, nextPos + 1200);
         const breakMatch = slice.match(/\n\n(?:\d+[\.\)]|\bQuestion\s+\d+|Q\d+[\.\:])/i);
         if (breakMatch && breakMatch.index !== undefined) {
-          nextPos = nextPos - 1500 + breakMatch.index + 2;
+          nextPos = nextPos - 1200 + breakMatch.index + 2;
         }
       }
 
@@ -299,7 +300,7 @@ function splitDocumentIntoChunks(fullText: string): DocChunk[] {
     return chunks;
   }
 
-  // Short/medium document: 1 single chunk for maximum speed and zero token overhead
+  // Short document: 1 single chunk
   return [{
     text: fullText,
     chunkIndex: 1,
@@ -308,8 +309,7 @@ function splitDocumentIntoChunks(fullText: string): DocChunk[] {
   }];
 }
 
-// High-precision Deterministic & Rule-Based Board Exam Parser
-// Guarantees 100% question recovery when API quotas or internet restrictions occur
+// Deterministic & Offline Parser to extract questions with 100% fidelity even when API limits or offline modes occur
 interface DeterministicQuestion {
   number: string;
   text: string;
@@ -666,8 +666,11 @@ CRITICAL DIRECTIVES:
    - Wrap inline math in single dollar signs like '$...$' (e.g., '$E = mc^2$', '$\\frac{a}{b}$', '$\\sigma = \\frac{P}{A}$').
    - Wrap standalone formulas in double dollar signs like '$$...$$'.
    - Double-escape backslashes in JSON (write '\\\\frac' or '\\\\sigma').
-5. COMPREHENSIVE EXPLANATIONS:
-   - For every question, provide a step-by-step solution or conceptual rationale in the 'explanation' field.`;
+5. COMPREHENSIVE LAYERED STEP-BY-STEP EXPLANATIONS & WHITEBOARD SOLUTIONS:
+   - For every calculation or conceptual problem, provide a crystal-clear, layered step-by-step derivation.
+   - Never squish or compress multiple formulas into one dense line. Format each intermediate calculation as a distinct, sequential step with title, formula in LaTeX, and narrative explanation.
+   - When calculations involve engineering laws (e.g. Ohm's law, 3-phase power, Pouillet's resistance law, moment distribution, Bernoulli's, etc.), populate the structured 'solution' object with 'given', 'find', 'principles', and 'steps' (each step having 'title', 'latexFormula', 'description').
+   - For the 'explanation' text, write distinct sentences with clear step headers (e.g. 'Step 1: Calculate Total Line Loss: $P_{\\text{loss}} = ...$. Step 2: Determine Current: $I = ...$.') so users can easily digest the solution layer-by-layer.`;
 
       // Construct multimodal parts for this chunk
       const parts: any[] = [];
