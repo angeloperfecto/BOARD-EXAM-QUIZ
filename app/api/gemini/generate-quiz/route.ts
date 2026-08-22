@@ -552,7 +552,23 @@ export async function POST(req: NextRequest) {
       console.log(`Processing Chunk ${chunk.chunkIndex}/${chunk.totalChunks} (${chunk.pageRange})...`);
 
       const systemInstruction = `You are an elite, exhaustive Exam Scanner and Question Extractor AI.
-Your directive is to extract 100% of ALL questions located in this section (${chunk.pageRange}) of the uploaded document with absolute completeness and zero omission.
+Your absolute, highest-priority directive is to perform 100% FAITHFUL EXTRACTION of all questions located in this section (${chunk.pageRange}) of the uploaded document with absolute completeness and zero omission.
+
+STRICT EXTRACTION RULES:
+1. NO REWRITING OR MODIFICATION: Do NOT rewrite, paraphrase, summarize, simplify, or modify any questions. Preserve the exact wording, spelling, punctuation, capitalization, numbers, symbols, units, and terminology from the original file.
+2. PRESERVE ORIGINAL NUMBERING & ORDER: Preserve the original numbering and order of the questions exactly as they appear in the source file. Do not re-index or renumber.
+3. PRESERVE CHOICES EXACTLY: Preserve all answer choices exactly as they appear, including:
+   - Option labels (e.g., A., B., C., D., or a., b., c., d.)
+   - Wording, sentences, and layout
+   - Numbers and mathematical expressions
+   - Units, symbols, and special characters
+4. EXACT FORMULAS: Mathematical questions and formulas must be extracted exactly and accurately. Do not convert, simplify, or change any mathematical expression.
+5. NO COMBINING OR SPLITTING: Do not accidentally combine two questions or split one question into multiple questions.
+6. NO OMISSIONS: Do not omit any question. Every question in this section must be extracted. If the source contains 100 questions, the system must extract all 100 questions.
+7. PRESERVE STRUCTURE: Preserve the original question structure, including diagrams, tables, figures, and other context when necessary to understand the question. If a question is situational (e.g., under a situation header), prepend or include that situation context.
+8. NO GUESSING: If text is unclear, corrupted, or difficult to read, do not guess or invent the missing text. Instead, flag it in the explanation or question text for verification.
+9. EXACT FORMATTING: The extracted questions must maintain the same structure as the source, formatted with the exact choices A, B, C, D as written.
+10. CONTENT VERIFICATION: Perform a question-count and content verification against the original section to ensure no questions were skipped, duplicated, altered, or reordered.
 
 CRITICAL DIRECTIVES:
 1. EXHAUSTIVE 100% SCANNING:
@@ -702,16 +718,22 @@ Document Content to Scan:
       });
     }
 
-    // Deduplicate questions by text similarity / number and ensure sequential numbering
+    // Deduplicate questions ONLY if they are 100% exact duplicates (full text comparison) to avoid omitting distinct questions that share a common prefix (like situational headers)
     const seenTexts = new Set<string>();
     const deduplicatedQuestions = allExtractedQuestions.filter(q => {
-      const normalized = (q.text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 100);
-      if (!normalized || seenTexts.has(normalized)) return false;
-      seenTexts.add(normalized);
+      const normalized = (q.text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!normalized) return false;
+      
+      // If there are choices, incorporate them into the deduplication key to distinguish questions with same text but different options
+      const choicesKey = q.choices ? q.choices.map((c: string) => c.toLowerCase().trim()).join('|') : '';
+      const uniqueKey = `${normalized}::${choicesKey}`;
+      
+      if (seenTexts.has(uniqueKey)) return false;
+      seenTexts.add(uniqueKey);
       return true;
     });
 
-    // Re-index question numbers cleanly if needed
+    // Preserve original question numbers if they exist, otherwise fallback to index + 1
     const finalQuestions = deduplicatedQuestions.map((q, index) => ({
       ...q,
       number: q.number || `${index + 1}.`,

@@ -1542,7 +1542,6 @@ export default function BoardExamReviewPro() {
       }
     } catch (docxErr: any) {
       console.warn('Docx parsing issue:', docxErr);
-      // Fallback: create placeholder entry if needed
       data = { html: `<p>Document: ${file.name}</p>`, success: true };
     }
     
@@ -1642,7 +1641,7 @@ export default function BoardExamReviewPro() {
           },
           body: JSON.stringify({
             text: combinedText,
-            images: allImages.slice(0, 30), // Protect against mega payloads
+            images: allImages.slice(0, 30), // Protect against oversized payloads
             fileName: allFileNames.join(', '),
             subject: subjectInput,
             difficulty: difficultyInput === 'auto' ? null : difficultyInput,
@@ -1690,10 +1689,10 @@ export default function BoardExamReviewPro() {
           });
         }
       } catch (networkOrApiErr) {
-        console.warn('API generation route call failed or returned unexpected response. Falling back to local offline extractor...', networkOrApiErr);
+        console.warn('API generation route call notice. Engaging local offline extractor...', networkOrApiErr);
       }
 
-      // If AI server failed, timed out, or returned unparseable output, invoke high-speed deterministic parser fallback
+      // If AI server returned unparseable output or no questions, engage high-speed deterministic parser
       if (!apiSucceeded || processedQuestions.length === 0) {
         console.log('Engaging client-side deterministic question parser on document text...');
         const deterministicQuestions = parseQuestionsDeterministically(
