@@ -153,9 +153,8 @@ export function parseQuestionsDeterministically(
     if (qMatch) {
       pushCurrentQuestion();
       const numStr = qMatch[1] || qMatch[2] || qMatch[3] || `${questions.length + 1}`;
-      const restText = (qMatch[4] || '').trim();
 
-      let fullQText = restText;
+      let fullQText = rawLine;
       if (currentSituation && !fullQText.includes(currentSituation)) {
         fullQText = `[${currentSituation}]\n${fullQText}`;
       }
