@@ -442,7 +442,7 @@ export async function POST(req: NextRequest) {
               },
               correctAnswer: {
                 type: Type.STRING,
-                description: "The correct answer (e.g. 'A', 'B', 'True', 'False', or short answer text).",
+                description: 'The correct answer (e.g. "A", "B", "True", "False", or short answer text). You must mathematically, logically, and conceptually solve the question to verify and confirm that the designated correct answer is 100% correct and matches one of the choices.',
               },
               matchingPairs: {
                 type: Type.ARRAY,
@@ -552,7 +552,23 @@ export async function POST(req: NextRequest) {
       console.log(`Processing Chunk ${chunk.chunkIndex}/${chunk.totalChunks} (${chunk.pageRange})...`);
 
       const systemInstruction = `You are an elite, exhaustive Exam Scanner and Question Extractor AI.
-Your directive is to extract 100% of ALL questions located in this section (${chunk.pageRange}) of the uploaded document with absolute completeness and zero omission.
+Your absolute, highest-priority directive is to perform 100% FAITHFUL EXTRACTION of all questions located in this section (${chunk.pageRange}) of the uploaded document with absolute completeness and zero omission.
+
+STRICT EXTRACTION RULES:
+1. NO REWRITING OR MODIFICATION: Do NOT rewrite, paraphrase, summarize, simplify, or modify any questions. Preserve the exact wording, spelling, punctuation, capitalization, numbers, symbols, units, and terminology from the original file.
+2. PRESERVE ORIGINAL NUMBERING & ORDER: Preserve the original numbering and order of the questions exactly as they appear in the source file. Do not re-index or renumber.
+3. PRESERVE CHOICES EXACTLY: Preserve all answer choices exactly as they appear, including:
+   - Option labels (e.g., A., B., C., D., or a., b., c., d.)
+   - Wording, sentences, and layout
+   - Numbers and mathematical expressions
+   - Units, symbols, and special characters
+4. EXACT FORMULAS: Mathematical questions and formulas must be extracted exactly and accurately. Do not convert, simplify, or change any mathematical expression.
+5. NO COMBINING OR SPLITTING: Do not accidentally combine two questions or split one question into multiple questions.
+6. NO OMISSIONS: Do not omit any question. Every question in this section must be extracted. If the source contains 100 questions, the system must extract all 100 questions.
+7. PRESERVE STRUCTURE: Preserve the original question structure, including diagrams, tables, figures, and other context when necessary to understand the question. If a question is situational (e.g., under a situation header), prepend or include that situation context.
+8. NO GUESSING: If text is unclear, corrupted, or difficult to read, do not guess or invent the missing text. Instead, flag it in the explanation or question text for verification.
+9. EXACT FORMATTING: The extracted questions must maintain the same structure as the source, formatted with the exact choices A, B, C, D as written.
+10. CONTENT VERIFICATION: Perform a question-count and content verification against the original section to ensure no questions were skipped, duplicated, altered, or reordered.
 
 CRITICAL DIRECTIVES:
 1. EXHAUSTIVE 100% SCANNING:
@@ -562,7 +578,8 @@ CRITICAL DIRECTIVES:
    - If situational problems exist (e.g. 'Situation 1: A 10m beam... Questions 1, 2, and 3'), prepend the situation description to EACH related question so they are fully self-contained.
 2. CHOICES & ANSWER EXTRACTION:
    - For Multiple Choice Questions (MCQ), extract all choices (A, B, C, D) into the 'choices' array.
-   - Detect correct answers from bolding, asterisk (*), answer keys, or context.
+   - DETECT & DOUBLE-CHECK CORRECT ANSWERS: You must determine the absolute correct answer. First, prioritize bolding, asterisks (*), inline correct markers, or any provided global answer keys. Second, if the answer is not explicitly marked, you MUST mathematically, logically, and conceptually solve the question to verify and confirm that the selected correct answer is 100% correct, and that it matches one of the extracted choices exactly.
+   - EXPLAIN DETAILED SOLVING STEPS: Include a fully-worked, step-by-step derivation of how the correct answer was arrived at in the explanation and solutions.
    ${globalAnswerKey ? `3. GLOBAL ANSWER KEY REFERENCE:\nUse this document answer key when available:\n${globalAnswerKey}\n` : ''}
 4. STRICT LATEX FOR MATHEMATICAL FORMULAS:
    - Wrap inline math in single dollar signs like '$...$' (e.g., '$E = mc^2$', '$\\frac{a}{b}$', '$\\sigma = \\frac{P}{A}$').
@@ -702,16 +719,22 @@ Document Content to Scan:
       });
     }
 
-    // Deduplicate questions by text similarity / number and ensure sequential numbering
+    // Deduplicate questions ONLY if they are 100% exact duplicates (full text comparison) to avoid omitting distinct questions that share a common prefix (like situational headers)
     const seenTexts = new Set<string>();
     const deduplicatedQuestions = allExtractedQuestions.filter(q => {
-      const normalized = (q.text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 100);
-      if (!normalized || seenTexts.has(normalized)) return false;
-      seenTexts.add(normalized);
+      const normalized = (q.text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!normalized) return false;
+      
+      // If there are choices, incorporate them into the deduplication key to distinguish questions with same text but different options
+      const choicesKey = q.choices ? q.choices.map((c: string) => c.toLowerCase().trim()).join('|') : '';
+      const uniqueKey = `${normalized}::${choicesKey}`;
+      
+      if (seenTexts.has(uniqueKey)) return false;
+      seenTexts.add(uniqueKey);
       return true;
     });
 
-    // Re-index question numbers cleanly if needed
+    // Preserve original question numbers if they exist, otherwise fallback to index + 1
     const finalQuestions = deduplicatedQuestions.map((q, index) => ({
       ...q,
       number: q.number || `${index + 1}.`,
